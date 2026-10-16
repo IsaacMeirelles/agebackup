@@ -440,6 +440,11 @@ Quando você informa uma chave no assistente, o AgeBackup **copia** o JSON para
 `~/.config/agebackup/` com permissão `0o600` e grava esse caminho. Assim a
 chave não fica dentro do repositório git. O arquivo original não é removido.
 
+> **Nunca remova um arquivo de credencial sem ter uma cópia.** A chave de
+> Service Account (e qualquer `credentials.json`/`token.json`) não é
+> recuperável pelo git, porque `*.json` é ignorado. Antes de qualquer `rm`,
+> `mv` ou limpeza de repositório, confirme que existe uma cópia de segurança.
+
 #### `verified`
 
 `true` depois que o AgeBackup conseguiu conectar à API com essas credenciais na
