@@ -395,31 +395,48 @@ class TestConfigurarContaServiceAccount:
         )
         return chave
 
+    def _protegida(self, chave):
+        """Caminho final da chave: cópia protegida dentro do CONFIG_DIR."""
+        return config_mod.CONFIG_DIR / chave.name
+
     def test_service_account_valida(self, tmp_path):
         chave = self._chave(tmp_path)
 
         form, _ = _configurar_conta(["2", str(chave)], None)
 
         assert form.auth_method == config_mod.AUTH_SERVICE_ACCOUNT
-        assert form.service_account_key_path == str(chave)
+        assert form.service_account_key_path == str(self._protegida(chave))
         assert form.email == "sa@projeto.iam.gserviceaccount.com"
+
+    def test_chave_e_copiada_para_o_config_dir_com_permissao_restrita(self, tmp_path):
+        chave = self._chave(tmp_path)
+
+        form, _ = _configurar_conta(["2", str(chave)], None)
+
+        protegida = Path(form.service_account_key_path)
+        assert protegida.exists()
+        assert protegida.parent == config_mod.CONFIG_DIR
+        assert protegida.stat().st_mode & 0o777 == 0o600
 
     def test_arquivo_inexistente_repergunta(self, tmp_path):
         chave = self._chave(tmp_path)
 
         form, saida = _configurar_conta(["2", "/nao/existe.json", str(chave)], None)
 
-        assert form.service_account_key_path == str(chave)
+        assert form.service_account_key_path == str(self._protegida(chave))
         assert "Arquivo nao encontrado" in saida
 
-    def test_caminho_relativo_e_salvo_como_absoluto(self, tmp_path, monkeypatch):
+    def test_caminho_relativo_vira_copia_absoluta_e_protegida(
+        self, tmp_path, monkeypatch
+    ):
         chave = self._chave(tmp_path)
         monkeypatch.chdir(tmp_path)
 
         form, _ = _configurar_conta(["2", "chave.json"], None)
 
-        assert Path(form.service_account_key_path).is_absolute()
-        assert Path(form.service_account_key_path) == chave
+        protegida = Path(form.service_account_key_path)
+        assert protegida.is_absolute()
+        assert protegida == self._protegida(chave)
 
     def test_json_que_nao_e_service_account_e_rejeitado(self, tmp_path):
         ruim = self._chave(tmp_path, tipo="authorized_user")
@@ -430,7 +447,7 @@ class TestConfigurarContaServiceAccount:
 
         form, saida = _configurar_conta(["2", str(ruim), str(bom)], None)
 
-        assert form.service_account_key_path == str(bom)
+        assert form.service_account_key_path == str(self._protegida(bom))
         assert "nao parece ser uma chave de Service Account" in saida
 
     def test_json_invalido_e_rejeitado(self, tmp_path):
@@ -440,7 +457,7 @@ class TestConfigurarContaServiceAccount:
 
         form, saida = _configurar_conta(["2", str(ruim), str(bom)], None)
 
-        assert form.service_account_key_path == str(bom)
+        assert form.service_account_key_path == str(self._protegida(bom))
         assert "Nao foi possivel ler o JSON" in saida
 
 

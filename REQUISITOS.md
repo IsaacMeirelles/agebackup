@@ -436,6 +436,10 @@ Caminho do arquivo JSON da chave de Service Account. Só é usado quando
 `auth_method` é `service_account`. O arquivo precisa ter `"type":
 "service_account"`.
 
+Quando você informa uma chave no assistente, o AgeBackup **copia** o JSON para
+`~/.config/agebackup/` com permissão `0o600` e grava esse caminho. Assim a
+chave não fica dentro do repositório git. O arquivo original não é removido.
+
 #### `verified`
 
 `true` depois que o AgeBackup conseguiu conectar à API com essas credenciais na

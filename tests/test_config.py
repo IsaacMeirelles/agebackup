@@ -263,6 +263,54 @@ def test_status_marca_chave_ausente(tmp_path):
     assert config_mod.status()["chave_presente"] is False
 
 
+def test_proteger_chave_copia_para_config_dir_com_0600(home_isolado, tmp_path):
+    original = tmp_path / "fora.json"
+    original.write_text("{}", encoding="utf-8")
+
+    resultado = config_mod.proteger_chave_service_account(str(original))
+
+    destino = Path(resultado)
+    assert destino.parent == config_mod.CONFIG_DIR
+    assert destino.name == "fora.json"
+    assert destino.read_text(encoding="utf-8") == "{}"
+    assert destino.stat().st_mode & 0o777 == 0o600
+    assert original.exists()  # não remove a original
+
+
+def test_proteger_chave_que_ja_esta_no_config_dir_so_ajusta_permissao(home_isolado):
+    config_mod.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    chave = config_mod.CONFIG_DIR / "chave.json"
+    chave.write_text("{}", encoding="utf-8")
+    chave.chmod(0o644)
+
+    resultado = config_mod.proteger_chave_service_account(str(chave))
+
+    assert Path(resultado) == chave
+    assert chave.stat().st_mode & 0o777 == 0o600
+
+
+def test_proteger_chave_caminho_inexistente_devolve_original(tmp_path):
+    inexistente = str(tmp_path / "nao_existe.json")
+
+    assert config_mod.proteger_chave_service_account(inexistente) == inexistente
+
+
+def test_proteger_chave_nao_sobrescreve_existente(home_isolado, tmp_path):
+    config_mod.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+    ja_existe = config_mod.CONFIG_DIR / "chave.json"
+    ja_existe.write_text('{"antigo": true}', encoding="utf-8")
+
+    original = tmp_path / "chave.json"
+    original.write_text('{"novo": true}', encoding="utf-8")
+
+    resultado = config_mod.proteger_chave_service_account(str(original))
+
+    destino = Path(resultado)
+    assert destino != ja_existe
+    assert destino.read_text(encoding="utf-8") == '{"novo": true}'
+    assert ja_existe.read_text(encoding="utf-8") == '{"antigo": true}'
+
+
 def test_logs_padrao_de_12_meses():
     assert LogConfig().keep_months == MESES_PADRAO
     assert LogConfig().compress is True

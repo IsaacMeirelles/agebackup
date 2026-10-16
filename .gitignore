@@ -24,3 +24,11 @@ gitcred
 .opencode/
 .~lock.*
 *.log
+
+# Chaves e credenciais (Service Account, OAuth)
+bkpenvio.json
+*service*account*.json
+*service-account*.json
+credentials.json
+token.json
+*.pem
