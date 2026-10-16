@@ -2,8 +2,8 @@
 
 import json
 
-from gback import manifest
-from gback.manifest import Registro
+from agebackup import manifest
+from agebackup.manifest import Registro
 
 
 def _registro(drive_id: str = "F1", nome: str = "a.pdf") -> Registro:
@@ -94,16 +94,16 @@ def test_nao_detecta_arquivo_ainda_no_drive(tmp_path):
 
 
 def test_arquivo_local_alheio_nao_e_removido(tmp_path):
-    # Colocado por outra pessoa, nunca baixado pelo gback.
+    # Colocado por outra pessoa, nunca baixado pelo agebackup.
     (tmp_path / "nota.txt").write_text("anotacao")
     registros = {"a.pdf": _registro("F1")}
 
     assert manifest.detectar_removidos(tmp_path, registros, set(), True) == []
 
 
-def test_arquivos_do_gback_sao_ignorados(tmp_path):
-    registros = {".gback-manifest.json": _registro("F1")}
-    (tmp_path / ".gback-manifest.json").write_text("{}")
+def test_arquivos_do_agebackup_sao_ignorados(tmp_path):
+    registros = {".agebackup-manifest.json": _registro("F1")}
+    (tmp_path / ".agebackup-manifest.json").write_text("{}")
 
     assert manifest.detectar_removidos(tmp_path, registros, set(), True) == []
 

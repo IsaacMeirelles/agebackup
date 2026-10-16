@@ -10,8 +10,8 @@ import pytest
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from gback import drive
-from gback.drive import (
+from agebackup import drive
+from agebackup.drive import (
     DownloadRestrictedError,
     FileNotFoundInDriveError,
     TransientDriveError,
@@ -235,7 +235,7 @@ def test_resolve_destination_para_na_raiz(service, tmp_path):
 def test_get_service_traduz_credenciais_ausentes(monkeypatch):
     import google.auth.exceptions
 
-    from gback import config as config_mod
+    from agebackup import config as config_mod
 
     def falha(*args: object, **kwargs: object) -> None:
         raise google.auth.exceptions.DefaultCredentialsError("nenhuma credencial")

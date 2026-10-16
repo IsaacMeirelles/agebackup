@@ -1,6 +1,6 @@
 """Testes da rotação mensal dos logs.
 
-A fronteira entre meses é decidida pelo arquivo de marca `.gback-mes`, não
+A fronteira entre meses é decidida pelo arquivo de marca `.agebackup-mes`, não
 pelo mtime do log. Os testes simulam a virada escrevendo a marca do mês
 anterior e chamando a rotação com uma data no mês seguinte.
 """
@@ -8,9 +8,9 @@ anterior e chamando a rotação com uma data no mês seguinte.
 import gzip
 from datetime import UTC, datetime
 
-from gback import rotacao
+from agebackup import rotacao
 
-LOG = ".gback-falhas.log"
+LOG = ".agebackup-falhas.log"
 MES_ANTERIOR = "2026-09"
 MES_ATUAL = "2026-10"
 AGORA = datetime(2026, 10, 12, 9, 0, tzinfo=UTC)

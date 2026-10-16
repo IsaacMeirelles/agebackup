@@ -1,4 +1,4 @@
-"""Configuração da conta e das credenciais de acesso do gback."""
+"""Configuração da conta e das credenciais de acesso do AgeBackup."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import subprocess
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "gback"
+CONFIG_DIR = Path.home() / ".config" / "agebackup"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 ADC_FILE = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
 
@@ -93,7 +93,7 @@ class BackupConfig:
 
 @dataclass
 class Config:
-    """Configuração completa do gback."""
+    """Configuração completa do AgeBackup."""
 
     account: AccountConfig = field(default_factory=AccountConfig)
     backup: BackupConfig = field(default_factory=BackupConfig)
@@ -133,7 +133,11 @@ def _conhecidos(dados: object, modelo: type) -> dict:
 
     campos = {campo.name for campo in fields(modelo)}
     filtrado = {chave: valor for chave, valor in dados.items() if chave in campos}
-    return _ajustar_log(filtrado) if modelo is LogConfig else _ajustar_retry(filtrado) if modelo is RetryConfig else filtrado
+    return (
+        _ajustar_log(filtrado)
+        if modelo is LogConfig
+        else _ajustar_retry(filtrado) if modelo is RetryConfig else filtrado
+    )
 
 
 def _ajustar_log(dados: dict) -> dict:
@@ -157,7 +161,7 @@ def _ajustar_retry(dados: dict) -> dict:
             dados["attempts"] = max(
                 RETRY_MINIMO, min(RETRY_MAXIMO, int(dados["attempts"]))
             )
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             dados["attempts"] = RETRY_PADRAO
     return dados
 
@@ -358,7 +362,7 @@ def verify_connection(
     que valida a Service Account antes de gravá-la no disco).
     """
     try:
-        from gback.drive import get_service
+        from agebackup.drive import get_service
 
         credentials = build_credentials(account)
         service = get_service(credentials=credentials)

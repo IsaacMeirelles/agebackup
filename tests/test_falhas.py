@@ -3,13 +3,13 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gback import falhas as falhas_mod
-from gback.drive import (
+from agebackup import falhas as falhas_mod
+from agebackup.drive import (
     DownloadRestrictedError,
     FileNotFoundInDriveError,
     TransientDriveError,
 )
-from gback.falhas import Falha, categorizar, contar_por_categoria, ler, registrar
+from agebackup.falhas import Falha, categorizar, contar_por_categoria, ler, registrar
 
 AGORA = datetime(2026, 10, 12, 9, 0, tzinfo=UTC)
 

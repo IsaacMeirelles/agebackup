@@ -5,7 +5,7 @@ local ao ID do arquivo no Drive. Isso permite distinguir três situações que
 o nome do arquivo sozinho não diferencia:
 
 - o arquivo foi removido no Drive (o caso que nos interessa)
-- o arquivo nunca foi baixado por este gback
+- o arquivo nunca foi baixado por este agebackup
 - o arquivo foi colocado na pasta por você ou por outro programa
 """
 
@@ -16,11 +16,11 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gback import rotacao
-from gback.falhas import FALHAS_NAME
+from agebackup import rotacao
+from agebackup.falhas import FALHAS_NAME
 
-MANIFEST_NAME = ".gback-manifest.json"
-REMOCIDOS_NAME = ".gback-removidos.log"
+MANIFEST_NAME = ".agebackup-manifest.json"
+REMOCIDOS_NAME = ".agebackup-removidos.log"
 MANIFEST_VERSION = 1
 
 
@@ -118,7 +118,7 @@ def registrar(
 
 
 def _arquivos_locais(destino: Path) -> set[str]:
-    """Lista os arquivos do destino, ignorando os arquivos internos do gback."""
+    """Lista os arquivos do destino, ignorando os arquivos internos do AgeBackup."""
     encontrados: set[str] = set()
 
     for caminho in destino.rglob("*"):
@@ -147,7 +147,7 @@ def detectar_removidos(
     """Devolve os caminhos locais cujos arquivos sumiram do Drive.
 
     Só considera arquivos que constam no manifesto. Um arquivo local que o
-    gback nunca baixou não é considerado remoção: pode ter sido colocado ali
+    agebackup nunca baixou não é considerado remoção: pode ter sido colocado ali
     por você.
 
     Args:

@@ -15,9 +15,9 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-from gback import rotacao
+from agebackup import rotacao
 
-FALHAS_NAME = ".gback-falhas.log"
+FALHAS_NAME = ".agebackup-falhas.log"
 
 # Categorias possíveis. Mantidas estáveis porque o log vira histórico.
 CAT_BLOQUEADO = "bloqueado"
@@ -108,7 +108,7 @@ def caminho_log(pasta_logs: Path) -> Path:
 
 def categorizar(error: Exception) -> tuple[str, str]:
     """Deduz a categoria e o detalhe legível de uma exceção."""
-    from gback.drive import (
+    from agebackup.drive import (
         DownloadRestrictedError,
         FileNotFoundInDriveError,
         TransientDriveError,

@@ -1,7 +1,7 @@
 [project]
-name = "gback"
+name = "agebackup"
 version = "0.1.0"
-description = "Projeto gback"
+description = "AgeBackup"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
@@ -12,9 +12,9 @@ dependencies = [
 ]
 
 [project.scripts]
-gback = "gback:main"
-gback-setup = "gback.setup:main"
-gback-backup = "gback.cli:main"
+agebackup = "agebackup:main"
+agebackup-setup = "agebackup.setup:main"
+agebackup-backup = "agebackup.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.13.0,<0.14.0"]

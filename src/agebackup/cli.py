@@ -5,10 +5,10 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from gback import falhas as falhas_mod
-from gback.backup import carregar_configuracao, executar_backup
-from gback.config import ConfigError
-from gback.drive import DriveError, get_service
+from agebackup import falhas as falhas_mod
+from agebackup.backup import carregar_configuracao, executar_backup
+from agebackup.config import ConfigError
+from agebackup.drive import DriveError, get_service
 
 LIMITE_ERROS_MOSTRADOS = 10
 
@@ -51,10 +51,10 @@ def mostrar_falhas(pasta_logs: Path) -> None:
 
 def mostrar_logs() -> None:
     """Lista todos os logs, os do mês corrente e os arquivos já comprimidos."""
-    from gback import manifest as manifest_mod
-    from gback import rotacao
+    from agebackup import manifest as manifest_mod
+    from agebackup import rotacao
 
-    _titulo("Logs do gback")
+    _titulo("Logs do AgeBackup")
 
     try:
         config = carregar_configuracao()
@@ -93,9 +93,9 @@ def mostrar_logs() -> None:
 
 def _ajuda() -> int:
     """Mostra a ajuda do comando."""
-    _titulo("gback-backup - ajuda")
+    _titulo("agebackup-backup - ajuda")
     print(
-        "  Uso: gback-backup [opcoes]\n\n"
+        "  Uso: agebackup-backup [opcoes]\n\n"
         "    (sem opcoes)   Executa o backup\n"
         "    --dry-run      Simula, sem gravar nada\n"
         "    -v, --verbose  Mostra o progresso detalhado\n"
@@ -156,7 +156,7 @@ def main() -> int:
             print(f"  {error}", file=sys.stderr)
             print(
                 "  Escolha uma pasta onde voce possa escrever, com:\n"
-                "    uv run gback-setup",
+                "    uv run agebackup-setup",
                 file=sys.stderr,
             )
             return 1
@@ -165,7 +165,7 @@ def main() -> int:
         service = get_service()
     except DriveError as error:
         print(f"\n  ERRO: {error}", file=sys.stderr)
-        print("  Rode: uv run gback-setup", file=sys.stderr)
+        print("  Rode: uv run agebackup-setup", file=sys.stderr)
         return 1
 
     print("\n  Consultando o Drive...")

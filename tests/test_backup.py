@@ -14,7 +14,7 @@ import pytest
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
-from gback.backup import (
+from agebackup.backup import (
     EXPORTABLE,
     FileEntry,
     Stats,
@@ -24,8 +24,8 @@ from gback.backup import (
     executar_backup,
     listar_arquivos,
 )
-from gback.config import AccountConfig, BackupConfig, Config
-from gback.drive import DownloadRestrictedError, TransientDriveError
+from agebackup.config import AccountConfig, BackupConfig, Config
+from agebackup.drive import DownloadRestrictedError, TransientDriveError
 
 CONTEUDO = b"conteudo do backup"
 
@@ -403,9 +403,18 @@ def test_eh_pasta():
 
 
 def test_exportable_tem_mapeamento_completo():
-    assert EXPORTABLE["application/vnd.google-apps.document"] == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    assert EXPORTABLE["application/vnd.google-apps.spreadsheet"] == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    assert EXPORTABLE["application/vnd.google-apps.presentation"] == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    assert (
+        EXPORTABLE["application/vnd.google-apps.document"]
+        == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    )
+    assert (
+        EXPORTABLE["application/vnd.google-apps.spreadsheet"]
+        == "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    assert (
+        EXPORTABLE["application/vnd.google-apps.presentation"]
+        == "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
     assert all(chave.startswith("application/vnd.google-apps.") for chave in EXPORTABLE)
 
 
@@ -446,7 +455,7 @@ def test_backup_registra_removido_na_origem(service, config, tmp_path):
     stats = executar_backup(service, config, destino)
 
     assert stats.removidos_na_origem == 1
-    log = destino / "logs" / ".gback-removidos.log"
+    log = destino / "logs" / ".agebackup-removidos.log"
     assert "b.txt" in log.read_text(encoding="utf-8")
 
 
@@ -481,7 +490,7 @@ def test_backup_dry_run_nao_gera_log_de_remocoes(service, config, tmp_path):
     _FakeDrive.arquivos = []
     executar_backup(service, config, destino, dry_run=True)
 
-    assert not (destino / "logs" / ".gback-removidos.log").exists()
+    assert not (destino / "logs" / ".agebackup-removidos.log").exists()
 
 
 def test_manifesto_e_gravado_apos_backup(service, config, tmp_path):
@@ -490,7 +499,7 @@ def test_manifesto_e_gravado_apos_backup(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    manifesto = destino / ".gback-manifest.json"
+    manifesto = destino / ".agebackup-manifest.json"
     assert manifesto.exists()
     assert "a.txt" in manifesto.read_text(encoding="utf-8")
 
@@ -513,7 +522,7 @@ def test_backup_grava_log_de_falhas(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    log = destino / "logs" / ".gback-falhas.log"
+    log = destino / "logs" / ".agebackup-falhas.log"
     assert log.exists()
     assert "a.txt" in log.read_text(encoding="utf-8")
 
@@ -525,7 +534,7 @@ def test_backup_registra_categoria_da_falha(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    texto = (destino / "logs" / ".gback-falhas.log").read_text(encoding="utf-8")
+    texto = (destino / "logs" / ".agebackup-falhas.log").read_text(encoding="utf-8")
     assert "bloqueado" in texto
 
 
@@ -536,7 +545,7 @@ def test_backup_dry_run_nao_gera_log_de_falhas(service, config, tmp_path):
 
     executar_backup(service, config, destino, dry_run=True)
 
-    assert not (destino / "logs" / ".gback-falhas.log").exists()
+    assert not (destino / "logs" / ".agebackup-falhas.log").exists()
 
 
 def test_backup_sem_falhas_nao_cria_log(service, config, tmp_path):
@@ -545,10 +554,10 @@ def test_backup_sem_falhas_nao_cria_log(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    assert not (destino / "logs" / ".gback-falhas.log").exists()
+    assert not (destino / "logs" / ".agebackup-falhas.log").exists()
 
 
-def test_logs_do_gback_nao_sao_tratados_como_removidos(service, config, tmp_path):
+def test_logs_do_agebackup_nao_sao_tratados_como_removidos(service, config, tmp_path):
     _FakeDrive.arquivos = [_arquivo("F1", "a.txt")]
     _FakeDrive.falhar_com = 403
     destino = tmp_path / "backup"
@@ -569,7 +578,7 @@ def test_video_do_drive_e_registrado_como_lro(service, config, tmp_path):
 
     assert stats.requer_lro == 1
     assert stats.baixados == 0
-    texto = (destino / "logs" / ".gback-falhas.log").read_text(encoding="utf-8")
+    texto = (destino / "logs" / ".agebackup-falhas.log").read_text(encoding="utf-8")
     assert "operacao_longa" in texto
     assert "meu-video" in texto
 
@@ -599,7 +608,7 @@ def test_documento_acima_do_limite_e_registrado(service, config, tmp_path):
     stats = executar_backup(service, config, destino)
 
     assert stats.requer_lro == 1
-    assert "operacao_longa" in (destino / "logs" / ".gback-falhas.log").read_text(
+    assert "operacao_longa" in (destino / "logs" / ".agebackup-falhas.log").read_text(
         encoding="utf-8"
     )
 
@@ -646,14 +655,18 @@ def test_rotacao_desativada_nao_comprime(service, config, tmp_path):
     _FakeDrive.arquivos = [_arquivo("F1", "a.txt")]
     config.logs.enabled = False
     destino = tmp_path / "backup"
-    (destino / "logs" / ".gback-mes").parent.mkdir(parents=True, exist_ok=True)
-    (destino / "logs" / ".gback-mes").write_text("2026-09")
-    (destino / "logs" / ".gback-falhas.log").write_text("antigo\n", encoding="utf-8")
+    (destino / "logs" / ".agebackup-mes").parent.mkdir(parents=True, exist_ok=True)
+    (destino / "logs" / ".agebackup-mes").write_text("2026-09")
+    (destino / "logs" / ".agebackup-falhas.log").write_text(
+        "antigo\n", encoding="utf-8"
+    )
 
     executar_backup(service, config, destino)
 
     assert not list(destino.rglob("*.gz"))
-    assert (destino / "logs" / ".gback-falhas.log").exists(), "log deve ficar intacto"
+    assert (
+        destino / "logs" / ".agebackup-falhas.log"
+    ).exists(), "log deve ficar intacto"
 
 
 def test_resumo_do_dry_run_nao_diz_baixados(service, config, tmp_path):
@@ -680,8 +693,8 @@ def test_logs_ficam_na_subpasta_logs(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    assert (destino / "logs" / ".gback-falhas.log").exists()
-    assert not (destino / ".gback-falhas.log").exists()
+    assert (destino / "logs" / ".agebackup-falhas.log").exists()
+    assert not (destino / ".agebackup-falhas.log").exists()
 
 
 def test_pasta_de_logs_e_configuravel(service, config, tmp_path):
@@ -692,7 +705,7 @@ def test_pasta_de_logs_e_configuravel(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    assert (destino / "historico" / ".gback-falhas.log").exists()
+    assert (destino / "historico" / ".agebackup-falhas.log").exists()
     assert not (destino / "logs").exists()
 
 
@@ -704,7 +717,7 @@ def test_pasta_de_logs_vazia_grava_na_raiz(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    assert (destino / ".gback-falhas.log").exists()
+    assert (destino / ".agebackup-falhas.log").exists()
     assert not (destino / "logs").exists()
 
 
@@ -716,8 +729,8 @@ def test_log_de_remocoes_fica_na_subpasta(service, config, tmp_path):
     _FakeDrive.arquivos = [_arquivo("F1", "a.txt")]
     executar_backup(service, config, destino)
 
-    assert (destino / "logs" / ".gback-removidos.log").exists()
-    assert not (destino / ".gback-removidos.log").exists()
+    assert (destino / "logs" / ".agebackup-removidos.log").exists()
+    assert not (destino / ".agebackup-removidos.log").exists()
 
 
 def test_manifesto_continua_na_raiz_do_backup(service, config, tmp_path):
@@ -726,16 +739,16 @@ def test_manifesto_continua_na_raiz_do_backup(service, config, tmp_path):
 
     executar_backup(service, config, destino)
 
-    assert (destino / ".gback-manifest.json").exists()
-    assert not (destino / "logs" / ".gback-manifest.json").exists()
+    assert (destino / ".agebackup-manifest.json").exists()
+    assert not (destino / "logs" / ".agebackup-manifest.json").exists()
 
 
 def test_rotacao_comprime_dentro_da_subpasta(service, config, tmp_path):
     config.logs.keep_months = 0
     pasta_logs = tmp_path / "backup" / "logs"
     pasta_logs.mkdir(parents=True)
-    (pasta_logs / ".gback-falhas.log").write_text("antigo\n", encoding="utf-8")
-    (pasta_logs / ".gback-mes").write_text("2020-01", encoding="utf-8")
+    (pasta_logs / ".agebackup-falhas.log").write_text("antigo\n", encoding="utf-8")
+    (pasta_logs / ".agebackup-mes").write_text("2020-01", encoding="utf-8")
     _FakeDrive.arquivos = []
 
     executar_backup(service, config, tmp_path / "backup")

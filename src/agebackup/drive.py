@@ -39,24 +39,24 @@ class TransientDriveError(DriveError):
 def get_service(credentials: object | None = None) -> Resource:
     """Cria o cliente da Drive API.
 
-    Sem argumentos, monta as credenciais a partir da configuração do gback
+    Sem argumentos, monta as credenciais a partir da configuração do AgeBackup
     (Application Default Credentials ou Service Account). Também aceita um
     objeto de credenciais já pronto, útil para testes e para validar uma conta
     antes de salvá-la.
 
     Autentique antes com `gcloud auth application-default login` ou configure
-    uma Service Account no `gback-setup`.
+    uma Service Account no `agebackup-setup`.
     """
     if credentials is None:
         try:
-            from gback import config as config_mod
+            from agebackup import config as config_mod
 
             credentials = config_mod.build_credentials()
         except DriveError:
             raise
         except Exception as error:
             raise DriveError(
-                "Credenciais ausentes ou inválidas. Rode: gback-setup"
+                "Credenciais ausentes ou inválidas. Rode: agebackup-setup"
             ) from error
 
     try:

@@ -11,17 +11,17 @@ from unittest import mock
 
 import pytest
 
-from gback import config as config_mod
-from gback import setup
-from gback.config import AccountConfig, BackupConfig, Config, LogConfig
+from agebackup import config as config_mod
+from agebackup import setup
+from agebackup.config import AccountConfig, BackupConfig, Config, LogConfig
 
 
 @pytest.fixture(autouse=True)
 def home_isolado(tmp_path, monkeypatch):
     """Redireciona ~/.config para um diretório temporário."""
-    monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path / ".config" / "gback")
+    monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path / ".config" / "agebackup")
     monkeypatch.setattr(
-        config_mod, "CONFIG_FILE", tmp_path / ".config" / "gback" / "config.json"
+        config_mod, "CONFIG_FILE", tmp_path / ".config" / "agebackup" / "config.json"
     )
     monkeypatch.setattr(
         config_mod,
@@ -122,7 +122,7 @@ class TestConfigurarBackup:
     def test_destino_vazio_usa_padrao(self):
         resultado, _ = _configurar_backup(["", "", "n"])
 
-        assert resultado.destination.endswith("gback")
+        assert resultado.destination.endswith("agebackup")
         assert resultado.destination != ""
 
     def test_shared_drives_pode_ser_ligado(self):
@@ -178,7 +178,7 @@ class TestConfigurarBackupReaproveitaExistente:
     def test_sem_config_anterior_usa_padrao(self):
         resultado, saida = _configurar_backup(["", "", "n"])
 
-        assert resultado.destination.endswith("gback")
+        assert resultado.destination.endswith("agebackup")
         assert "Configuracao atual" not in saida
 
     def test_mostra_o_destino_atual(self):

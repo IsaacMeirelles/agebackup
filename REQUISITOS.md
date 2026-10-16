@@ -1,4 +1,4 @@
-# Manual do usuário — gback
+# Requisitos e Manual do Usuário — AgeBackup
 
 Backup do Google Drive para o seu computador.
 
@@ -9,7 +9,7 @@ Siga na ordem.
 
 ## Sumário
 
-1. [O que o gback faz](#1-o-que-o-gback-faz)
+1. [O que o AgeBackup faz](#1-o-que-o-agebackup-faz)
 2. [Pré-requisitos](#2-pré-requisitos)
 3. [Autenticar sua conta](#3-autenticar-sua-conta)
 4. [Configurar (passo a passo)](#4-configurar-passo-a-passo)
@@ -23,12 +23,12 @@ Siga na ordem.
 
 ---
 
-## 1. O que o gback faz
+## 1. O que o AgeBackup faz
 
-Você aponta o gback para uma pasta local. Ele lê o seu Google Drive e copia os
+Você aponta o AgeBackup para uma pasta local. Ele lê o seu Google Drive e copia os
 arquivos para lá. Na segunda execução, só baixa o que mudou.
 
-Ponto importante: **o gback nunca apaga nada do seu computador.** Ele apenas
+Ponto importante: **o AgeBackup nunca apaga nada do seu computador.** Ele apenas
 *registra* em log quando um arquivo some do Drive, para você decidir.
 
 ---
@@ -37,12 +37,12 @@ Ponto importante: **o gback nunca apaga nada do seu computador.** Ele apenas
 
 ### Python — já instalado
 
-O projeto já está pronto em `~/projetos/gback`, com Python 3.14 e as
+O projeto já está pronto em `~/projetos/agebackup`, com Python 3.14 e as
 dependências. Nada a fazer aqui.
 
 ### gcloud CLI — opcional
 
-O gback usa a **gcloud CLI** para obter credenciais quando o método é ADC. Ela
+O agebackup usa a **gcloud CLI** para obter credenciais quando o método é ADC. Ela
 **não é obrigatória**: o método Service Account funciona sem gcloud.
 
 ```sh
@@ -64,7 +64,7 @@ gcloud --version
 
 ## 3. Autenticar sua conta
 
-O gback precisa de uma credencial que representa **você**, para ter acesso aos
+O agebackup precisa de uma credencial que representa **você**, para ter acesso aos
 seus arquivos. Há **dois métodos**, e o assistente pergunta qual usar:
 
 | Método | Navegador? | Quando usar |
@@ -74,7 +74,7 @@ seus arquivos. Há **dois métodos**, e o assistente pergunta qual usar:
 
 ### Método 1 — ADC via gcloud (recomendado no dia a dia)
 
-Você não precisa rodar o comando na mão: o próprio `gback-setup` dispara
+Você não precisa rodar o comando na mão: o próprio `agebackup-setup` dispara
 
 ```sh
 gcloud auth application-default login \
@@ -88,7 +88,7 @@ recentes do gcloud **recusam** emitir credenciais só com o escopo do Drive.
 O navegador abre e você autoriza. Escolha sua conta e permita o acesso.
 
 > **Em WSL / servidor sem navegador:** o gcloud não abre o navegador sozinho. O
-> gback detecta isso e usa `--no-launch-browser`: ele imprime uma URL. Copie,
+> agebackup detecta isso e usa `--no-launch-browser`: ele imprime uma URL. Copie,
 > abra no navegador do Windows (ou de outra máquina), autorize, copie o
 > **código** exibido e cole de volta no terminal.
 
@@ -101,17 +101,17 @@ Não depende de navegador nem de gcloud. Como usar:
 2. Gere uma **chave JSON** para ela (Keys → Add key → JSON).
 3. **Compartilhe** a pasta (ou o Drive) que quer copiar com o e-mail da conta
    de serviço (`client_email`), com permissão de **Leitor**.
-4. No `gback-setup`, escolha a opção `2` e informe o caminho do arquivo JSON.
+4. No `agebackup-setup`, escolha a opção `2` e informe o caminho do arquivo JSON.
 
-O gback valida o arquivo na hora: se não for uma chave de Service Account
+O agebackup valida o arquivo na hora: se não for uma chave de Service Account
 (campo `type` diferente de `service_account`), ele avisa e pede outro.
 
 ### Aviso de "app não verificado"
 
-No fluxo ADC, o Google mostra um aviso, porque o gback é um projeto próprio,
+No fluxo ADC, o Google mostra um aviso, porque o AgeBackup é um projeto próprio,
 fora da lista de aplicativos verificados. **Isso é esperado.** Clique em:
 
-**Avançado** → **Acessar o gback (não seguro)**
+**Avançado** → **Acessar o AgeBackup (não seguro)**
 
 Só faça isso porque você sabe que o app é o seu. Nunca dispense esse aviso em um
 site que você não reconhece.
@@ -126,8 +126,8 @@ depende dela. Escolha a opção `2` no assistente.
 ## 4. Configurar (passo a passo)
 
 ```sh
-cd ~/projetos/gback
-uv run gback-setup
+cd ~/projetos/agebackup
+uv run agebackup-setup
 ```
 
 O assistente faz **4 passos**. Ele mostra o estado atual antes de perguntar
@@ -154,7 +154,7 @@ Se você responder `s`, cada passo passa a mostrar o valor atual:
 
 ```
 ==============================================================
-  Configuracao do gback
+  Configuracao do AgeBackup
 ==============================================================
 
   Pressione Enter para manter, ou digite outro valor para alterar.
@@ -208,7 +208,7 @@ Exemplo real — uma configuração com pasta definida e 6 meses de retenção:
 
 ### Passo 1 — Conta e credenciais
 
-Se já existir configuração e você aceitou reaproveitá-la, o gback **testa a
+Se já existir configuração e você aceitou reaproveitá-la, o AgeBackup **testa a
 autenticação atual** antes de oferecer mantê-la:
 
 ```
@@ -247,7 +247,7 @@ Escolhendo **1 (ADC)**, se já houver credenciais:
 Responda `n` para reaproveitar. Responda `s` para refazer a autorização — útil
 se você trocou de conta ou se algum arquivo der erro de permissão.
 
-**Se a gcloud CLI não estiver instalada**, o gback avisa e sugere o método 2
+**Se a gcloud CLI não estiver instalada**, o AgeBackup avisa e sugere o método 2
 (Service Account), que não precisa dela.
 
 ### Passo 2 — Destino e escopo
@@ -257,10 +257,10 @@ Você define **para onde** e **o quê** copiar.
 **Destino local** — pasta onde os arquivos serão gravados.
 
 ```
-  Destino local [/home/isaac/gback]:
+  Destino local [/home/isaac/agebackup]:
 ```
 
-Sugestão padrão: `~/gback`. Pressione Enter para aceitar. Digite outro caminho
+Sugestão padrão: `~/agebackup`. Pressione Enter para aceitar. Digite outro caminho
 se preferir (ex.: `/mnt/disco-externo/backup`). A pasta é criada sozinha se não
 existir.
 
@@ -280,7 +280,7 @@ Aqui você tem duas opções:
 Como descobrir o ID: abra a pasta no navegador do Drive. O final da URL é o
 ID, algo como `1a2B3cD4eF5gH6iJ7kL8mN9oP0qR`.
 
-> A pasta **é recursiva**: subpastas dentro dela também são copiadas. O gback
+> A pasta **é recursiva**: subpastas dentro dela também são copiadas. O agebackup
 > espelha a estrutura do Drive no disco (veja "Como os arquivos são
 > organizados" abaixo).
 
@@ -305,7 +305,7 @@ Comece com `n` — é mais simples e normalmente é o que você quer.
   Conectado como usuario@exemplo.com
 ```
 
-O gback faz uma chamada real à API. Se mostrar erro aqui, não adianta seguir:
+O agebackup faz uma chamada real à API. Se mostrar erro aqui, não adianta seguir:
 volte ao [passo 3](#3-autenticar-sua-conta).
 
 ### Passo 4 — Pasta, rotação e retenção dos logs
@@ -329,7 +329,7 @@ prazo.
 ### Conferindo a configuração
 
 ```sh
-uv run gback-setup --status
+uv run agebackup-setup --status
 ```
 
 ```
@@ -341,12 +341,12 @@ uv run gback-setup --status
   Credenciais    : encontradas (ADC)
     conta        : usuario@exemplo.com
     projeto      : meu-projeto
-  Arquivo        : /home/isaac/.config/gback/config.json
+  Arquivo        : /home/isaac/.config/agebackup/config.json
     conta        : usuario@exemplo.com
     metodo       : adc
     autenticada  : sim
     escopos      : https://www.googleapis.com/auth/drive.readonly
-    destino      : /home/isaac/gback
+    destino      : /home/isaac/agebackup
     pasta Drive  : (Drive inteiro)
     retencao     : 12 meses
     compactacao  : gzip
@@ -355,7 +355,7 @@ uv run gback-setup --status
 
 ### Onde fica salvo
 
-`~/.config/gback/config.json`, com permissão `600` (só você pode ler).
+`~/.config/agebackup/config.json`, com permissão `600` (só você pode ler).
 
 ---
 
@@ -375,7 +375,7 @@ Referência completa de todos os campos. O arquivo tem três seções: `account`
     "ask_reuse": true
   },
   "backup": {
-    "destination": "/home/isaac/gback",
+    "destination": "/home/isaac/agebackup",
     "folder_id": "",
     "include_shared_drives": false
   },
@@ -397,7 +397,7 @@ você não precisa editar.
 
 #### `scopes` — **tem mais de uma opção**
 
-Lista de permissões pedidas à sua conta. Define **o que o gback pode ver e
+Lista de permissões pedidas à sua conta. Define **o que o AgeBackup pode ver e
 fazer**.
 
 | Valor | O que permite | Consequência |
@@ -413,11 +413,11 @@ um *escopo restrito*: para uso fora do seu próprio projeto, o Google exige
 verificação do app, o que leva dias e exige passar por análise. Para um
 backup pessoal, `drive.readonly` funciona e evita esse trâmite.
 
-> ⚠️ **Atenção:** com `drive.readonly`, o gback pode ler o conteúdo dos
+> ⚠️ **Atenção:** com `drive.readonly`, o AgeBackup pode ler o conteúdo dos
 > arquivos, mas não pode gravá-los no Drive. É exatamente o que um backup
 > unidirecional precisa.
 
-**Trocar o escopo:** edite o JSON e rode `uv run gback-setup` de novo para
+**Trocar o escopo:** edite o JSON e rode `uv run agebackup-setup` de novo para
 reautenticar com a nova permissão. Alterar a lista sem reautenticar mantém a
 credencial antiga.
 
@@ -438,13 +438,13 @@ Caminho do arquivo JSON da chave de Service Account. Só é usado quando
 
 #### `verified`
 
-`true` depois que o gback conseguiu conectar à API com essas credenciais na
+`true` depois que o AgeBackup conseguiu conectar à API com essas credenciais na
 última configuração. `false` significa que a autenticação ainda não foi
 validada (ou falhou). Serve para diagnóstico rápido.
 
 #### `ask_reuse` — **tem mais de uma opção**
 
-Controla se o `gback-setup` pergunta, ao abrir, se deve **reaproveitar a
+Controla se o `agebackup-setup` pergunta, ao abrir, se deve **reaproveitar a
 configuração existente**.
 
 | Valor | O que acontece |
@@ -459,7 +459,7 @@ pergunta. Você também pode editar o campo à mão.
 
 #### `destination`
 
-Pasta local onde os arquivos caem. Não precisa existir: o gback cria.
+Pasta local onde os arquivos caem. Não precisa existir: o AgeBackup cria.
 
 Cuidados:
 
@@ -471,7 +471,7 @@ Cuidados:
 
 #### Como os arquivos são organizados
 
-O gback **espelha a árvore de pastas do Drive** no destino. Um arquivo em
+O agebackup **espelha a árvore de pastas do Drive** no destino. Um arquivo em
 `Didaticos/Administracao/lei.pdf` no Drive vira
 `<destino>/Didaticos/Administracao/lei.pdf` no disco.
 
@@ -482,7 +482,7 @@ O gback **espelha a árvore de pastas do Drive** no destino. Um arquivo em
   `<destino>/Didaticos/Administracao/lei.pdf`.
 
 Arquivos que estão na raiz do Drive caem direto no destino, sem subpasta.
-Nomes repetidos na mesma pasta ganham sufixo `(1)`, `(2)`, ... — o gback nunca
+Nomes repetidos na mesma pasta ganham sufixo `(1)`, `(2)`, ... — o AgeBackup nunca
 sobrescreve um arquivo existente.
 
 #### `folder_id` — **tem mais de uma opção**
@@ -502,7 +502,7 @@ Exemplo:
 
 Como obter o ID: abra a pasta no Drive; o ID é o último trecho da URL.
 
-> O `folder_id` **é recursivo**: o gback desce nas subpastas e reproduz a
+> O `folder_id` **é recursivo**: o AgeBackup desce nas subpastas e reproduz a
 > estrutura de pastas no disco. O nome da pasta informada vira o primeiro
 > nível local (ex.: `bkps/Didaticos/Administracao/arquivo.pdf`).
 
@@ -515,7 +515,7 @@ Se os drives compartilhados da sua organização entram no backup.
 | `false` (padrão) | Só o seu Drive pessoal | Caso comum |
 | `true` | Também os drives de equipe | Você depende de arquivos da equipe |
 
-Ao marcar `true`, o gback usa `corpora=allDrives`. Pode encontrar:
+Ao marcar `true`, o AgeBackup usa `corpora=allDrives`. Pode encontrar:
 
 - drives em que você não tem acesso — o log vai marcar como `bloqueado`;
 - erros de permissão na listagem.
@@ -550,14 +550,14 @@ Quantos meses de logs comprimidos manter.
   vira 0.
 - **Valor não numérico** volta ao padrão (12).
 
-Como o cálculo funciona: em outubro com `keep_months: 6`, o gback mantém
+Como o cálculo funciona: em outubro com `keep_months: 6`, o AgeBackup mantém
 arquivos de **abril a outubro** e apaga março e anteriores. O log do mês
 corrente nunca é apagado.
 
 Para alterar sem refazer o assistente:
 
 ```sh
-uv run gback-setup --logs
+uv run agebackup-setup --logs
 ```
 
 #### `compress`
@@ -579,7 +579,7 @@ Subpasta do destino onde os logs são gravados.
 | `""` (vazio) | Logs na raiz do destino (comportamento antigo) |
 | outro nome | Logs em `<destino>/<nome>/` |
 
-O manifesto `.gback-manifest.json` **não** muda: continua na raiz do destino.
+O manifesto `.agebackup-manifest.json` **não** muda: continua na raiz do destino.
 
 - **Caminhos absolutos** (`/etc`) e com `..` voltam ao padrão (`logs`): os logs
   precisam ficar dentro do backup.
@@ -587,13 +587,13 @@ O manifesto `.gback-manifest.json` **não** muda: continua na raiz do destino.
 Para alterar:
 
 ```sh
-uv run gback-setup --logs
+uv run agebackup-setup --logs
 ```
 
 Evite escolher um nome de pasta que exista no Drive que você faz backup (por
-exemplo, uma pasta `logs` na origem), para não misturar os logs do gback com os
+exemplo, uma pasta `logs` na origem), para não misturar os logs do AgeBackup com os
 arquivos copiados. Se acontecer, eles não colidem pelos nomes (os logs começam
-com `.gback-`), mas ficam juntos.
+com `.agebackup-`), mas ficam juntos.
 
 ### Resumo das opções múltiplas
 
@@ -614,7 +614,7 @@ com `.gback-`), mas ficam juntos.
 ### Sempre comece simulando
 
 ```sh
-uv run gback-backup --dry-run
+uv run agebackup-backup --dry-run
 ```
 
 Isso lista o que **seria** baixado, sem gravar nada:
@@ -636,7 +636,7 @@ Confira a lista. Se estiver correta, siga.
 ### Executando de verdade
 
 ```sh
-uv run gback-backup
+uv run agebackup-backup
 ```
 
 ```
@@ -644,11 +644,11 @@ uv run gback-backup
   Backup do Google Drive
 ==============================================================
   Conta    : usuario@exemplo.com
-  Destino  : /home/isaac/gback
+  Destino  : /home/isaac/agebackup
   Pasta    : Drive inteiro
   Drives   : apenas o meu
   Modo     : real
-  Logs     : /home/isaac/gback/logs
+  Logs     : /home/isaac/agebackup/logs
 
   baixando     relatorio.pdf...
   ok           relatorio.pdf
@@ -662,14 +662,14 @@ uv run gback-backup
 ### Segunda execução
 
 ```sh
-uv run gback-backup
+uv run agebackup-backup
 ```
 
 ```
   128 arquivos, 0 baixados, 128 inalterados
 ```
 
-O gback compara a data de modificação do Drive com a do arquivo local. Só
+O agebackup compara a data de modificação do Drive com a do arquivo local. Só
 rebaixa o que mudou.
 
 ### Opções
@@ -688,37 +688,37 @@ arquivo exigiu operação de longa duração (ver [seção 11](#11-limitações-
 
 ## 7. Os logs
 
-O gback mantém dois logs e um manifesto. Por padrão, os **logs** ficam numa
+O agebackup mantém dois logs e um manifesto. Por padrão, os **logs** ficam numa
 subpasta `logs/` dentro do backup — o nome da pasta é configurável no Passo 4
 do assistente (ou pela chave `logs.directory`). O **manifesto** fica na raiz do
 backup.
 
 ```
-~/gback/
+~/agebackup/
 ├── logs/
-│   ├── .gback-falhas.log
-│   └── .gback-removidos.log
-└── .gback-manifest.json
+│   ├── .agebackup-falhas.log
+│   └── .agebackup-removidos.log
+└── .agebackup-manifest.json
 ```
 
 ### O que cada um registra
 
 | Arquivo | Registra | Nunca apaga conteúdo? |
 | --- | --- | --- |
-| `logs/.gback-falhas.log` | O que **não conseguiu baixar** | Só expurga por retenção |
-| `logs/.gback-removidos.log` | O que **sumiu do Drive** | Só expurga por retenção |
-| `.gback-manifest.json` | Ligação arquivo local ↔ ID no Drive | Atualizado sempre |
+| `logs/.agebackup-falhas.log` | O que **não conseguiu baixar** | Só expurga por retenção |
+| `logs/.agebackup-removidos.log` | O que **sumiu do Drive** | Só expurga por retenção |
+| `.agebackup-manifest.json` | Ligação arquivo local ↔ ID no Drive | Atualizado sempre |
 
 ### Arquivos removidos na origem
 
-Quando um arquivo que o gback já baixou deixa de existir no Drive:
+Quando um arquivo que o AgeBackup já baixou deixa de existir no Drive:
 
 ```
   removido     notas-antigas.txt
-  registrado em /home/isaac/gback/logs/.gback-removidos.log
+  registrado em /home/isaac/agebackup/logs/.agebackup-removidos.log
 ```
 
-**O arquivo continua no seu computador.** O gback não apaga nada. A decisão é
+**O arquivo continua no seu computador.** O agebackup não apaga nada. A decisão é
 sua.
 
 Formato do log:
@@ -730,7 +730,7 @@ Formato do log:
 
 Data e hora da detecção + caminho. Uma linha por arquivo.
 
-**Como ele sabe o que foi removido?** O manifesto (`.gback-manifest.json`)
+**Como ele sabe o que foi removido?** O manifesto (`.agebackup-manifest.json`)
 guarda a correspondência entre o caminho local e o ID no Drive. Isso evita
 falsos positivos:
 
@@ -738,7 +738,7 @@ falsos positivos:
 | --- | --- |
 | Baixou `a.pdf`, foi deletado do Drive | **sim** |
 | Você mesmo colocou `nota.txt` na pasta | não |
-| Arquivo que o gback nunca baixou | não |
+| Arquivo que o AgeBackup nunca baixou | não |
 | A listagem do Drive falhou no meio | não |
 | Arquivo já limpo do disco antes | não |
 
@@ -769,16 +769,16 @@ Categorias:
 Consultar:
 
 ```sh
-uv run gback-backup --falhas
+uv run agebackup-backup --falhas
 
 # só as de hoje
-grep "^2026-10-12" ~/gback/logs/.gback-falhas.log
+grep "^2026-10-12" ~/agebackup/logs/.agebackup-falhas.log
 
 # quantas de cada tipo
-awk -F'\t' '{print $3}' ~/gback/logs/.gback-falhas.log | sort | uniq -c
+awk -F'\t' '{print $3}' ~/agebackup/logs/.agebackup-falhas.log | sort | uniq -c
 
 # só as que exigem operação longa
-awk -F'\t' '$3=="operacao_longa" {print $2}' ~/gback/logs/.gback-falhas.log
+awk -F'\t' '$3=="operacao_longa" {print $2}' ~/agebackup/logs/.agebackup-falhas.log
 ```
 
 ### Rotação e retenção
@@ -786,27 +786,27 @@ awk -F'\t' '$3=="operacao_longa" {print $2}' ~/gback/logs/.gback-falhas.log
 Os logs são comprimidos por mês, dentro da pasta de logs:
 
 ```
-~/gback/logs/
-├── .gback-falhas.log              # outubro (texto)
-├── .gback-falhas.2026-09.log.gz   # setembro (comprimido)
-├── .gback-removidos.log
-├── .gback-removidos.2026-09.log.gz
-└── .gback-mes                     # marca do mês corrente
+~/agebackup/logs/
+├── .agebackup-falhas.log              # outubro (texto)
+├── .agebackup-falhas.2026-09.log.gz   # setembro (comprimido)
+├── .agebackup-removidos.log
+├── .agebackup-removidos.2026-09.log.gz
+└── .agebackup-mes                     # marca do mês corrente
 ```
 
 Ler um compactado:
 
 ```sh
-zcat ~/gback/logs/.gback-falhas.2026-09.log.gz | less
+zcat ~/agebackup/logs/.agebackup-falhas.2026-09.log.gz | less
 ```
 
 Listar tudo:
 
 ```sh
-uv run gback-backup --logs
+uv run agebackup-backup --logs
 ```
 
-**Como a virada de mês é detectada:** por um arquivo de marca, `.gback-mes`.
+**Como a virada de mês é detectada:** por um arquivo de marca, `.agebackup-mes`.
 Deliberadamente **não** se usa a data de modificação do log, porque gravar no
 mês corrente atualizaria essa data e poderia esconder um log antigo — juntando
 meses diferentes no mesmo arquivo.
@@ -817,7 +817,7 @@ mesmo mês não faz nada além do necessário.
 **Configurando a retenção e a pasta dos logs:**
 
 ```sh
-uv run gback-setup --logs
+uv run agebackup-setup --logs
 ```
 
 ### Apagar logs manualmente
@@ -825,10 +825,10 @@ uv run gback-setup --logs
 Nenhum log é apagado automaticamente além da retenção. Para liberar espaço:
 
 ```sh
-rm ~/gback/logs/.gback-falhas.2026-08.log.gz
+rm ~/agebackup/logs/.agebackup-falhas.2026-08.log.gz
 ```
 
-Não apague `.gback-manifest.json` — sem ele o gback perde a capacidade de
+Não apague `.agebackup-manifest.json` — sem ele o AgeBackup perde a capacidade de
 detectar remoções.
 
 ---
@@ -844,7 +844,7 @@ crontab -e
 Backup todo dia às 3h:
 
 ```cron
-0 3 * * * cd /home/isaac/projetos/gback && /home/isaac/projetos/gback/.venv/bin/python -m gback.cli >> /home/isaac/gback-backup.log 2>&1
+0 3 * * * cd /home/isaac/projetos/agebackup && /home/isaac/projetos/agebackup/.venv/bin/python -m agebackup.cli >> /home/isaac/agebackup-backup.log 2>&1
 ```
 
 Detalhes que importam:
@@ -852,7 +852,7 @@ Detalhes que importam:
 - **Use o caminho absoluto** do interpretador. O `PATH` do cron é mínimo e não
   inclui o venv.
 - **`>>` e não `>`**: acrescentar, para preservar o histórico.
-- **Verifique** rodando: `tail -20 ~/gback-backup.log`
+- **Verifique** rodando: `tail -20 ~/agebackup-backup.log`
 
 ---
 
@@ -862,21 +862,21 @@ Detalhes que importam:
 
 | Comando | O quê |
 | --- | --- |
-| `uv run gback-setup` | Assistente completo (4 passos) |
-| `uv run gback-setup --status` | Mostra o estado atual |
-| `uv run gback-setup --test` | Testa a conexão com a API |
-| `uv run gback-setup --logs` | Edita pasta, rotação e retenção dos logs |
-| `uv run gback-setup --reset` | Apaga a configuração |
+| `uv run agebackup-setup` | Assistente completo (4 passos) |
+| `uv run agebackup-setup --status` | Mostra o estado atual |
+| `uv run agebackup-setup --test` | Testa a conexão com a API |
+| `uv run agebackup-setup --logs` | Edita pasta, rotação e retenção dos logs |
+| `uv run agebackup-setup --reset` | Apaga a configuração |
 
 ### Backup
 
 | Comando | O quê |
 | --- | --- |
-| `uv run gback-backup --dry-run` | Simula, não grava |
-| `uv run gback-backup` | Executa |
-| `uv run gback-backup -v` | Detalhado |
-| `uv run gback-backup --falhas` | Últimas falhas |
-| `uv run gback-backup --logs` | Logs e política de rotação |
+| `uv run agebackup-backup --dry-run` | Simula, não grava |
+| `uv run agebackup-backup` | Executa |
+| `uv run agebackup-backup -v` | Detalhado |
+| `uv run agebackup-backup --falhas` | Últimas falhas |
+| `uv run agebackup-backup --logs` | Logs e política de rotação |
 
 ---
 
@@ -886,12 +886,12 @@ Detalhes que importam:
 
 A gcloud CLI não está instalada. Você pode instalá-la (veja a
 [seção 2](#2-pré-requisitos)) **ou** usar o método Service Account, que não
-depende dela: rode `uv run gback-setup` e escolha a opção `2`.
+depende dela: rode `uv run agebackup-setup` e escolha a opção `2`.
 
 ### "cloud-platform scope is required but not requested"
 
 Versões recentes do gcloud recusam emitir credenciais só com escopos restritos
-como o do Drive. O gback já pede os **dois** escopos automaticamente
+como o do Drive. O agebackup já pede os **dois** escopos automaticamente
 (`drive.readonly` + `cloud-platform`). Se você estiver rodando o gcloud na mão,
 inclua o `cloud-platform`:
 
@@ -902,7 +902,7 @@ gcloud auth application-default login \
 
 ### O navegador não abre (WSL, servidor, SSH)
 
-O gback detecta o WSL e usa `--no-launch-browser`: ele imprime uma URL. Copie,
+O agebackup detecta o WSL e usa `--no-launch-browser`: ele imprime uma URL. Copie,
 abra no navegador do Windows (ou de outra máquina), autorize, copie o código e
 cole de volta no terminal. Se nem isso funcionar, use o método **Service
 Account** (opção `2`), que não precisa de navegador.
@@ -911,26 +911,26 @@ Account** (opção `2`), que não precisa de navegador.
 
 ```sh
 gcloud auth application-default login
-uv run gback-setup
+uv run agebackup-setup
 ```
 
 Ou, sem gcloud, escolha o método Service Account no assistente.
 
 ### A autenticação anterior parou de funcionar
 
-Rode `uv run gback-setup`. No Passo 1 o gback **testa** as credenciais e, se
+Rode `uv run agebackup-setup`. No Passo 1 o AgeBackup **testa** as credenciais e, se
 estiverem quebradas, avisa e já sugere reautenticar (a opção "manter" deixa de
 aparecer). Se preferir começar limpo, responda `n` à pergunta "Usar a
 configuracao existente?".
 
 ### App "não verificado" no navegador
 
-Escolha **Avançado** → **Acessar o gback (não seguro)**. É esperado: o gback é
+Escolha **Avançado** → **Acessar o AgeBackup (não seguro)**. É esperado: o AgeBackup é
 um projeto próprio, fora da lista de apps verificados do Google.
 
 ### Arquivos aparecem como "arquivo (1).ext"
 
-Já existe um arquivo com esse nome na pasta. O gback nunca sobrescreve: cria um
+Já existe um arquivo com esse nome na pasta. O agebackup nunca sobrescreve: cria um
 novo com sufixo.
 
 ### Download marcado como `bloqueado`
@@ -971,7 +971,7 @@ Seja claro sobre o que **não** funciona:
 | **Não apaga arquivos locais** | Só registra a remoção no log |
 | **Não baixa versões anteriores** | Só a versão atual de cada arquivo |
 | **Não agenda sozinho** | Use cron |
-| **Não renomeia/move locais** | Se um arquivo muda de nome ou de pasta no Drive, o gback grava uma cópia nova; não remove a antiga |
+| **Não renomeia/move locais** | Se um arquivo muda de nome ou de pasta no Drive, o AgeBackup grava uma cópia nova; não remove a antiga |
 | **Testes usam servidor emulado** | A suíte automatizada roda contra um servidor HTTP local; o caminho real já foi verificado manualmente com uma conta somente-leitura |
 
 ### Sobre a última limitação
@@ -989,10 +989,10 @@ pequena (usando `folder_id`) antes de soltar o Drive inteiro.
 ## Estrutura do projeto
 
 ```
-~/projetos/gback/
-├── src/gback/
+~/projetos/agebackup/
+├── src/agebackup/
 │   ├── backup.py      # motor do backup
-│   ├── cli.py         # comando gback-backup
+│   ├── cli.py         # comando agebackup-backup
 │   ├── config.py      # configuração, credenciais, política de logs
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── falhas.py      # log de falhas
@@ -1000,7 +1000,7 @@ pequena (usando `folder_id`) antes de soltar o Drive inteiro.
 │   ├── rotacao.py     # rotação mensal e retenção
 │   └── setup.py       # tela de configuração
 ├── tests/             # 248 testes
-├── GUIA.md            # este manual
+├── USERGUIDE.md        # guia do usuário
 └── .opencode/skills/  # documentação de referência da API
 ```
 

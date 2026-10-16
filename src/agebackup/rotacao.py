@@ -1,4 +1,4 @@
-"""Rotação mensal dos logs do gback.
+"""Rotação mensal dos logs do AgeBackup.
 
 Cada log segue o padrão `<nome>.AAAA-MM.log` para os meses já fechados e um
 arquivo `<nome>.log` para o mês corrente. Quando o mês vira, o arquivo do mês
@@ -6,11 +6,11 @@ que acabou é comprimido em `<nome>.AAAA-MM.log.gz` e um novo `.log` começa.
 
 Exemplo do que fica na pasta de logs (por padrão `logs/` dentro do backup):
 
-    .gback-falhas.log              # mês corrente, texto
-    .gback-falhas.2026-09.log.gz   # mês anterior, comprimido
-    .gback-falhas.2026-08.log.gz   # mais antigo, comprimido
+    .agebackup-falhas.log              # mês corrente, texto
+    .agebackup-falhas.2026-09.log.gz   # mês anterior, comprimido
+    .agebackup-falhas.2026-08.log.gz   # mais antigo, comprimido
 
-A fronteira entre meses é decidida por um arquivo de marca (`.gback-mês`), e
+A fronteira entre meses é decidida por um arquivo de marca (`.agebackup-mês`), e
 não pelo mtime do log. Isso porque escrever no log no mês corrente atualiza o
 mtime e faria um log antigo passar "despercebido", juntando meses distintos no
 mesmo arquivo.
@@ -27,7 +27,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
-MARCA_NAME = ".gback-mes"
+MARCA_NAME = ".agebackup-mes"
 PADRAO_ARQUIVO = "{nome}.{ano:04d}-{mes:02d}.log"
 PADRAO_COMPACTADO = "{nome}.{ano:04d}-{mes:02d}.log.gz"
 
@@ -153,7 +153,7 @@ def rotacionar(
     necessário.
 
     Args:
-        log: caminho do log corrente, ex.: `pasta/.gback-falhas.log`.
+        log: caminho do log corrente, ex.: `pasta/.agebackup-falhas.log`.
         agora: momento de referência. Use o momento atual.
         meses: quantos meses de arquivos comprimidos manter. 0 guarda tudo.
         comprimir: quando False, apenas move o log do mês anterior sem

@@ -1,65 +1,95 @@
-# gback
+# AgeBackup
 
-Ambiente de desenvolvimento Python 3.14 gerenciado com [uv](https://docs.astral.sh/uv/).
+Backup automático e somente-leitura do Google Drive para o seu computador.
+
+O **AgeBackup** espelha recursivamente uma pasta do Google Drive (ou a conta
+inteira) para uma pasta local, rebaixando apenas o que mudou desde a última
+execução. Documentos Google são exportados com a extensão correta
+(`.docx`, `.xlsx`, `.pptx`), transferências instáveis são repetidas
+automaticamente e os logs giram mensalmente com retenção configurável.
+
+## Funcionalidades
+
+- **Espelhamento recursivo** — replica a árvore de pastas do Drive no disco,
+  com ou sem `folder_id` (raiz da conta).
+- **Incremental** — arquivos inalterados não são rebaixados; o manifesto
+  `.agebackup-manifest.json` mapeia cada arquivo do Drive ao seu caminho local.
+- **Nunca sobrescreve** — conflitos de nome ganham sufixo numérico; nada
+  existente é substituído.
+- **Exportação de documentos Google** — Docs → `.docx`, Planilhas → `.xlsx`,
+  Apresentações → `.pptx`, Desenhos → `.pdf`.
+- **Retry configurável** — repetição automática de falhas temporárias de
+  transferência (1 a 10 tentativas, padrão 3).
+- **Logs com rotação mensal** — falhas e remoções registrados em
+  `destino/logs/`, comprimidos em `.log.gz` e retidos por X meses.
+- **Dois modos de autenticação** — Application Default Credentials (conta
+  pessoal/gestor) ou Service Account (compartilhando a pasta por e-mail).
 
 ## Requisitos
 
-- Python 3.14.4
-- uv 0.13.0 (instalado em `~/.local/bin/uv`)
+- Python 3.14+ (gerenciado pelo [uv](https://docs.astral.sh/uv/))
+- Uma conta Google com a **Google Drive API** habilitada
+- Credenciais: OAuth (ADC) **ou** chave de Service Account (JSON)
+
+## Instalação
+
+```bash
+git clone git@github.com:IsaacMeirelles/agebackup.git
+cd agebackup
+uv sync
+```
 
 ## Uso
 
-Ative o ambiente virtual:
-
 ```bash
-cd ~/projetos/gback
-source .venv/bin/activate
+uv run agebackup-setup    # assistente de configuração e autenticação
+uv run agebackup-setup --test   # testa credenciais e acesso à pasta
+uv run agebackup-backup --dry-run   # simula, sem gravar
+uv run agebackup-backup             # executa o backup
 ```
 
-Ou use o `uv run` diretamente, que ativa o ambiente automaticamente:
+Parâmetros úteis de `agebackup-backup`:
 
-```bash
-uv run gback-setup      # assistente de configuração
-uv run gback-backup     # executar backup
-```
-
-### Comandos comuns
-
-| Comando | Descrição |
+| Flag | Efeito |
 | --- | --- |
-| `uv run python <arquivo>` | Executa um script no ambiente |
-| `uv add <pacote>` | Adiciona dependência |
-| `uv add --dev <pacote>` | Adiciona dependência de desenvolvimento |
-| `uv remove <pacote>` | Remove dependência |
-| `uv sync` | Sincroniza o ambiente com o `pyproject.toml` |
-| `uv lock` | Atualiza o `uv.lock` |
-| `uv pip list` | Lista pacotes instalados |
+| `--dry-run` | Lista o que seria baixado, sem gravar |
+| `--verbose` | Detalha cada arquivo processado |
+| `--logs` | Ajusta pasta, rotação e retenção de logs |
 
-### Formatação e lint
+A configuração fica em `~/.config/agebackup/config.json` e o assistente
+(`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo
+confirmação — nada precisa ser reescrito do zero.
+
+## Estrutura do backup
+
+```
+destino/
+├── .agebackup-manifest.json   # mapa Drive → caminho local
+├── Pastas...                  # espelho da árvore do Drive
+└── logs/
+    ├── .agebackup-falhas.log        # mês corrente
+    ├── .agebackup-falhas.2026-09.log.gz   # meses fechados
+    └── .agebackup-removidos.log     # arquivos removidos do Drive
+```
+
+## Documentação
+
+| Documento | Conteúdo |
+| --- | --- |
+| [REQUISITOS.md](REQUISITOS.md) | Requisitos e manual completo, do zero à produção |
+| [USERGUIDE.md](USERGUIDE.md) | Guia rápido de uso passo a passo |
+
+## Desenvolvimento
 
 ```bash
-uv run black .
-uv run ruff check .
-uv run ruff check --fix .
+uv run python -m pytest   # 248 testes (nenhum chama a API real)
+uv run black .            # formatação
+uv run ruff check .       # lint
 ```
 
-## Estrutura
+A suíte usa um servidor HTTP local que emula a Drive API — não há chamadas
+de rede nos testes.
 
-```
-gback/
-├── .python-version        # versão do Python (3.14)
-├── pyproject.toml         # metadados e dependências
-├── uv.lock                # versões travadas das dependências
-└── src/gback/       # código do pacote
-```
+## Licença
 
-## Pendência
-
-Instalar as ferramentas de compilação do sistema (necessário apenas para
-dependências que compilam código nativo a partir do fonte):
-
-```bash
-sudo apt-get update && sudo apt-get install -y build-essential
-```
-
-O `git` já está instalado (2.53.0).
+GPL-3.0 — veja [LICENSE](LICENSE).

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from gback import config as config_mod
-from gback.config import (
+from agebackup import config as config_mod
+from agebackup.config import (
     MESES_MAXIMO,
     MESES_MINIMO,
     MESES_PADRAO,
@@ -21,9 +21,9 @@ from gback.config import (
 @pytest.fixture(autouse=True)
 def home_isolado(tmp_path, monkeypatch):
     """Redireciona ~/.config para um diretório temporário."""
-    monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path / ".config" / "gback")
+    monkeypatch.setattr(config_mod, "CONFIG_DIR", tmp_path / ".config" / "agebackup")
     monkeypatch.setattr(
-        config_mod, "CONFIG_FILE", tmp_path / ".config" / "gback" / "config.json"
+        config_mod, "CONFIG_FILE", tmp_path / ".config" / "agebackup" / "config.json"
     )
     monkeypatch.setattr(
         config_mod,
@@ -319,7 +319,7 @@ def test_pasta_dos_logs_config_antiga_usa_padrao(home_isolado):
 
 
 def test_pasta_dos_logs_absoluta_volta_ao_padrao(home_isolado):
-    config_mod.save(Config(logs=LogConfig(directory="/etc/gback")))
+    config_mod.save(Config(logs=LogConfig(directory="/etc/agebackup")))
 
     assert config_mod.load().logs.directory == config_mod.LOGS_PADRAO
 
@@ -517,7 +517,7 @@ class _ServiceFalso:
 
 
 def _preparar_verify(monkeypatch, service) -> None:
-    from gback import drive
+    from agebackup import drive
 
     monkeypatch.setattr(config_mod, "build_credentials", lambda *a, **k: object())
     monkeypatch.setattr(drive, "get_service", lambda credentials=None: service)

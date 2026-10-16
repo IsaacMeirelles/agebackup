@@ -7,8 +7,8 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from gback import config as config_mod
-from gback.config import (
+from agebackup import config as config_mod
+from agebackup.config import (
     AUTH_ADC,
     AUTH_SERVICE_ACCOUNT,
     MESES_MAXIMO,
@@ -301,7 +301,7 @@ def _configurar_service_account(form: AuthForm) -> AuthForm:
             print("    Este arquivo nao parece ser uma chave de Service Account.")
             continue
 
-        # Guarda o caminho absoluto: um caminho relativo quebraria se o gback
+        # Guarda o caminho absoluto: um caminho relativo quebraria se o AgeBackup
         # fosse executado de outro diretório.
         form.service_account_key_path = str(chave.resolve())
         form.email = dados.get("client_email", "")
@@ -346,7 +346,7 @@ def _autenticar() -> None:
     else:
         print("\n  Vai abrir o navegador para voce autorizar o acesso.")
         print("  Se aparecer aviso de app nao verificado:")
-        print('  escolha "Avancado" e depois "Acessar o gback (nao seguro)".')
+        print('  escolha "Avancado" e depois "Acessar o AgeBackup (nao seguro)".')
 
     try:
         config_mod.login([READONLY_SCOPE])
@@ -384,7 +384,7 @@ def configurar_backup(atual: BackupConfig | None = None) -> BackupForm:
     """
     _titulo("Passo 2 de 4 - Destino e escopo do backup")
 
-    padrao_destino = str(Path.home() / "gback")
+    padrao_destino = str(Path.home() / "agebackup")
     destino_atual = atual.destination if atual else ""
 
     print("  Pasta local onde os arquivos serao gravados.")
@@ -448,7 +448,7 @@ def wizard() -> int:
     """Executa o assistente completo de configuração."""
     mostrar_status()
 
-    _titulo("Configuracao do gback")
+    _titulo("Configuracao do AgeBackup")
 
     # Carrega a configuração existente para usar seus valores como padrão.
     anterior = config_mod.load()
@@ -517,7 +517,7 @@ def editar_logs() -> int:
 
     atual = config_mod.load()
     if atual is None:
-        print("  Nao ha configuracao salva. Rode primeiro: uv run gback-setup")
+        print("  Nao ha configuracao salva. Rode primeiro: uv run agebackup-setup")
         return 1
 
     try:
@@ -537,9 +537,9 @@ def editar_logs() -> int:
 
 def _ajuda() -> int:
     """Mostra a ajuda da tela de configuração."""
-    _titulo("gback-setup - ajuda")
+    _titulo("agebackup-setup - ajuda")
     print(
-        "  Uso: gback-setup [opcoes]\n\n"
+        "  Uso: agebackup-setup [opcoes]\n\n"
         "    (sem opcoes)   Assistente completo (4 passos)\n"
         "    --status       Mostra o estado atual\n"
         "    --test         Testa a conexao com a API\n"

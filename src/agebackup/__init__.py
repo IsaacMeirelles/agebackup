@@ -1,9 +1,9 @@
-"""gback — backup do Google Drive."""
+"""agebackup — backup do Google Drive."""
 
-from gback import config, falhas, rotacao
-from gback.backup import FileEntry, Stats, executar_backup, listar_arquivos
-from gback.config import AccountConfig, BackupConfig, Config, ConfigError
-from gback.drive import (
+from agebackup import config, falhas, rotacao
+from agebackup.backup import FileEntry, Stats, executar_backup, listar_arquivos
+from agebackup.config import AccountConfig, BackupConfig, Config, ConfigError
+from agebackup.drive import (
     DownloadRestrictedError,
     DriveError,
     FileNotFoundInDriveError,
@@ -15,7 +15,7 @@ from gback.drive import (
     get_service,
     resolve_destination,
 )
-from gback.falhas import Falha
+from agebackup.falhas import Falha
 
 __all__ = [
     "AccountConfig",
@@ -44,4 +44,4 @@ __all__ = [
 
 
 def main() -> None:
-    print("Hello from gback!")
+    print("Hello from AgeBackup!")

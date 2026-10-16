@@ -10,11 +10,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
-from gback import falhas as falhas_mod
-from gback import manifest as manifest_mod
-from gback import rotacao
-from gback.config import Config, ConfigError
-from gback.drive import (
+from agebackup import falhas as falhas_mod
+from agebackup import manifest as manifest_mod
+from agebackup import rotacao
+from agebackup.config import Config, ConfigError
+from agebackup.drive import (
     DownloadRestrictedError,
     DriveError,
     TransientDriveError,
@@ -23,8 +23,8 @@ from gback.drive import (
     export_document,
     file_name,
 )
-from gback.falhas import Falha
-from gback.manifest import detectar_removidos, registrar_removidos
+from agebackup.falhas import Falha
+from agebackup.manifest import detectar_removidos, registrar_removidos
 
 # Documentos do Google não existem como blob; precisam de export.
 GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps."
@@ -264,7 +264,7 @@ def exige_operacao_longa(entrada: FileEntry) -> str:
     """Diz se o arquivo só pode ser baixado por operação de longa duração.
 
     Devolve o motivo (string) quando exige, ou string vazia quando não.
-    O gback não executa LRO, então esses arquivos são registrados como
+    O agebackup não executa LRO, então esses arquivos são registrados como
     pendentes em vez de tentados.
     """
     if entrada.mime_type in REQUER_LRO:
@@ -307,7 +307,9 @@ def _destino_existente(arquivo: Path, entrada: FileEntry) -> Path | None:
     return None
 
 
-def _baixar_com_retry(service, entrada: FileEntry, destino: Path, max_retries: int = MAX_RETRIES_DEFAULT) -> Path:
+def _baixar_com_retry(
+    service, entrada: FileEntry, destino: Path, max_retries: int = MAX_RETRIES_DEFAULT
+) -> Path:
     """Baixa um arquivo, repetindo em falhas temporárias.
 
     Ao final ajusta o mtime do arquivo para a data de modificação informada pelo
@@ -471,7 +473,9 @@ def executar_backup(
 
             try:
                 destino = _unique_path(destino)
-                gravado = _baixar_com_retry(service, entrada, destino, config.retry.attempts)
+                gravado = _baixar_com_retry(
+                    service, entrada, destino, config.retry.attempts
+                )
                 manifest_mod.registrar(
                     registros,
                     str(gravado.relative_to(destino_raiz)),
@@ -536,13 +540,15 @@ def executar_backup(
 
 def carregar_configuracao() -> Config:
     """Carrega a configuração ou orienta o usuário a rodar o assistente."""
-    from gback import config as config_mod
+    from agebackup import config as config_mod
 
     config = config_mod.load()
     if config is None:
         raise ConfigError(
-            "Nenhuma configuracao encontrada. Rode primeiro:\n  uv run gback-setup"
+            "Nenhuma configuracao encontrada. Rode primeiro:\n  uv run agebackup-setup"
         )
     if not config.backup.destination:
-        raise ConfigError("Destino nao definido. Reconfigure com: uv run gback-setup")
+        raise ConfigError(
+            "Destino nao definido. Reconfigure com: uv run agebackup-setup"
+        )
     return config
