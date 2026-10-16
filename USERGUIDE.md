@@ -198,32 +198,50 @@ Drive** e registra isso em um log.
   Backup do Google Drive
 ==============================================================
   ...
-  removido     notas-antigas.txt
+  removido    notas-antigas.txt
+  excluido    contrato-2025.pdf
+  sem acesso  relatorio.pdf
   registrado em /home/isaac/agebackup/logs/.agebackup-removidos.log
 
 ==============================================================
   Resumo
 ==============================================================
-  40 arquivos, 0 baixados, 40 inalterados, 2 removidos na origem
+  40 arquivos, 0 baixados, 40 inalterados, 2 removidos na origem, 1 sem acesso (fora do escopo)
 ```
+
+O AgeBackup consulta cada arquivo que sumiu para dizer **por que** ele saiu:
+
+| Rótulo | O que aconteceu |
+| --- | --- |
+| `removido` | Ainda existe no Drive, mas saiu da listagem (caso raro) |
+| `excluido` | Foi para a lixeira do Drive |
+| `sem acesso` | Foi movido para uma pasta **não compartilhada** com a conta do backup (a API responde 403/404) |
+
+O `sem acesso` é o caso mais comum quando você **cria uma pasta fora da pasta
+compartilhada** (por exemplo, na raiz do *Meu Drive*) e move arquivos para lá. A
+conta de backup deixa de enxergá-los. Para voltarem a ser copiados, mantenha a
+pasta **dentro** da pasta compartilhada ou compartilhe-a com a conta do backup.
 
 ### O que o AgeBackup **não** faz
 
 **O arquivo removido continua no seu computador.** O agebackup apenas registra.
-Nada é apagado do disco — a decisão de apagar é sempre sua.
+Nada é apagado do disco — a decisão de apagar é sempre sua. Isso vale inclusive
+para `sem acesso`: se você trazer os arquivos de volta ao escopo, eles são
+reconhecidos de novo.
 
 ### O arquivo de log
 
 Local: `.agebackup-removidos.log`, dentro de `logs/` na pasta de backup.
 
 ```
-2026-10-12T12:39:38+00:00	notas-antigas.txt
-2026-10-12T12:41:02+00:00	contrato-2025.pdf
+2026-10-12T12:39:38+00:00	removido	notas-antigas.txt
+2026-10-12T12:41:02+00:00	excluido	contrato-2025.pdf
+2026-10-12T12:45:10+00:00	sem_acesso	relatorio.pdf
 ```
 
-Formato: `data e hora<TAB>caminho`. Uma linha por arquivo, com data e hora do
-momento em que a remoção foi detectada. O log **acumula** — nada é sobrescrito,
-então você tem o histórico.
+Formato: `data e hora<TAB>motivo<TAB>caminho`. Uma linha por arquivo, com data e
+hora do momento em que a remoção foi detectada. O log **acumula** — nada é
+sobrescrito, então você tem o histórico.
 
 ### Como ele sabe o que foi removido
 
@@ -232,7 +250,8 @@ qual arquivo local veio de qual arquivo do Drive. Isso evita falsos positivos:
 
 | Situação | É reportado como removido? |
 | --- | --- |
-| Baixou `a.pdf`, foi deletado do Drive | **sim** |
+| Baixou `a.pdf`, foi deletado do Drive | **sim** (`excluido`) |
+| Foi movido para pasta não compartilhada | não (`sem acesso`) |
 | Você mesmo colocou `nota.txt` na pasta | não |
 | Arquivo que o AgeBackup nunca baixou | não |
 | Listagem do Drive falhou no meio | não (não sabe o que sumiu) |

@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from googleapiclient.errors import HttpError
+
 from agebackup import falhas as falhas_mod
 from agebackup import manifest as manifest_mod
 from agebackup import rotacao
@@ -38,6 +40,14 @@ EXPORTABLE = {
 # Policy now comes from config; keep default for backward compat reference
 MAX_RETRIES_DEFAULT = 3
 RETRY_DELAY = 2.0
+
+# Motivo de um arquivo que saiu da listagem, apurado com um files.get por ID:
+#   - 404: sem acesso (movido para fora da pasta compartilhada);
+#   - trashed=true: excluído no Drive;
+#   - senão: removido (deixou de ser listado, mas ainda acessível).
+REMOCAO_SEM_ACESSO = "sem_acesso"
+REMOCAO_EXCLUIDO = "excluido"
+REMOCAO_REMOVIDO = "removido"
 
 # Arquivos que só podem ser baixados por operação de longa duração (LRO),
 # via método files.download. Não há caminho alternativo.
@@ -84,6 +94,7 @@ class Stats:
     falhas: int = 0
     bytes_novos: int = 0
     removidos_na_origem: int = 0
+    removidos_sem_acesso: int = 0
     requer_lro: int = 0
     dry_run: bool = False
     falhas_registro: list[Falha] = field(default_factory=list)
@@ -102,6 +113,8 @@ class Stats:
         ]
         if self.removidos_na_origem:
             partes.append(f"{self.removidos_na_origem} removidos na origem")
+        if self.removidos_sem_acesso:
+            partes.append(f"{self.removidos_sem_acesso} sem acesso (fora do escopo)")
         if self.requer_lro:
             partes.append(f"{self.requer_lro} exigem operação longa")
         if self.falhas:
@@ -389,6 +402,39 @@ def _rotacionar_logs(config: Config, destino: Path) -> None:
             print(f"  log removido   {arquivo.name} (fora da retenção)")
 
 
+def classificar_remocao(service, drive_id: str) -> str:
+    """Diz por que um arquivo do manifesto deixou de ser listado.
+
+    Consulta o arquivo por ID e devolve um dos motivos:
+
+    - ``REMOCAO_SEM_ACESSO``: a API respondeu 403/404. Normalmente o arquivo
+      foi movido para uma pasta que não está compartilhada com a conta, então
+      ele saiu do escopo do backup (não foi excluído).
+    - ``REMOCAO_EXCLUIDO``: o arquivo ainda existe, mas está na lixeira.
+    - ``REMOCAO_REMOVIDO``: o arquivo ainda existe e não está na lixeira, mas
+      não apareceu na listagem (situação rara). Também é o padrão quando a
+      consulta falha por outro motivo, para não esconder uma remoção real.
+    """
+    try:
+        meta = (
+            service.files()
+            .get(fileId=drive_id, fields="id,trashed", supportsAllDrives=True)
+            .execute()
+        )
+    except HttpError as error:
+        if error.resp.status in (403, 404):
+            return REMOCAO_SEM_ACESSO
+        return REMOCAO_REMOVIDO
+    except OSError:
+        return REMOCAO_REMOVIDO
+
+    if not meta or not meta.get("id"):
+        return REMOCAO_REMOVIDO
+    if meta.get("trashed"):
+        return REMOCAO_EXCLUIDO
+    return REMOCAO_REMOVIDO
+
+
 def executar_backup(
     service,
     config: Config,
@@ -512,14 +558,33 @@ def executar_backup(
     removidos = detectar_removidos(
         destino_raiz, registros, ids_vistos, listagem_completa
     )
-    stats.removidos_na_origem = len(removidos)
+
+    motivos: dict[str, str] = {}
+    if removidos:
+        motivos = {
+            caminho: classificar_remocao(service, registros[caminho].drive_id)
+            for caminho in removidos
+        }
+
+    removidos_efetivos = [
+        caminho for caminho in removidos if motivos[caminho] != REMOCAO_SEM_ACESSO
+    ]
+    stats.removidos_na_origem = len(removidos_efetivos)
+    stats.removidos_sem_acesso = len(removidos) - len(removidos_efetivos)
 
     pasta_logs = config.logs.pasta(destino_raiz)
 
     if removidos and not dry_run:
-        log = registrar_removidos(pasta_logs, removidos, registros)
+        log = registrar_removidos(pasta_logs, removidos, registros, motivos=motivos)
         for caminho in removidos:
-            print(f"  removido     {caminho}")
+            motivo = motivos[caminho]
+            if motivo == REMOCAO_SEM_ACESSO:
+                rotulo = "sem acesso  "
+            elif motivo == REMOCAO_EXCLUIDO:
+                rotulo = "excluido    "
+            else:
+                rotulo = "removido    "
+            print(f"  {rotulo}{caminho}")
         if log is None:
             stats.erros.append(("<log>", "não foi possível gravar o log de remoções"))
         else:

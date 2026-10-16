@@ -720,12 +720,24 @@ backup.
 
 ### Arquivos removidos na origem
 
-Quando um arquivo que o AgeBackup já baixou deixa de existir no Drive:
+Quando um arquivo que o AgeBackup já baixou deixa de aparecer na listagem do
+Drive, ele consulta o arquivo por ID para saber **por que** saiu:
 
 ```
-  removido     notas-antigas.txt
+  removido    notas-antigas.txt
+  excluido    contrato-2025.pdf
+  sem acesso  relatorio.pdf
   registrado em /home/isaac/agebackup/logs/.agebackup-removidos.log
 ```
+
+| Rótulo | Significado | Situação típica |
+| --- | --- | --- |
+| `removido` | Ainda existe e não está na lixeira, mas saiu da listagem | Caso raro |
+| `excluido` | Está na lixeira do Drive | Você apagou |
+| `sem acesso` | A API respondeu 403/404 | Foi movido para uma pasta **não compartilhada** com a conta |
+
+No resumo, `removido` e `excluido` entram como **"N removidos na origem"**;
+`sem acesso` aparece separado como **"N sem acesso (fora do escopo)"**.
 
 **O arquivo continua no seu computador.** O agebackup não apaga nada. A decisão é
 sua.
@@ -733,11 +745,12 @@ sua.
 Formato do log:
 
 ```
-2026-10-12T12:39:38+00:00	notas-antigas.txt
-2026-10-12T12:41:02+00:00	contrato-2025.pdf
+2026-10-12T12:39:38+00:00	removido	notas-antigas.txt
+2026-10-12T12:41:02+00:00	excluido	contrato-2025.pdf
+2026-10-12T12:45:10+00:00	sem_acesso	relatorio.pdf
 ```
 
-Data e hora da detecção + caminho. Uma linha por arquivo.
+Data e hora da detecção + motivo + caminho. Uma linha por arquivo.
 
 **Como ele sabe o que foi removido?** O manifesto (`.agebackup-manifest.json`)
 guarda a correspondência entre o caminho local e o ID no Drive. Isso evita
@@ -745,7 +758,8 @@ falsos positivos:
 
 | Situação | Reporta como removido? |
 | --- | --- |
-| Baixou `a.pdf`, foi deletado do Drive | **sim** |
+| Baixou `a.pdf`, foi deletado do Drive | **sim** (`excluido`) |
+| Arquivo movido para pasta não compartilhada | não (`sem acesso`) |
 | Você mesmo colocou `nota.txt` na pasta | não |
 | Arquivo que o AgeBackup nunca baixou | não |
 | A listagem do Drive falhou no meio | não |

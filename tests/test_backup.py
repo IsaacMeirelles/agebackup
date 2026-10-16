@@ -42,6 +42,7 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
     paginas: ClassVar[list[dict]] = []
     paginar: ClassVar[int] = 0
     falhar_com: int | None = None
+    sumidos: ClassVar[set[str]] = set()
 
     @classmethod
     def arquivos_page(cls, pagina_atual: int = 0) -> dict:
@@ -108,6 +109,18 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
             return
 
         file_id = sem_query.rsplit("/", 1)[-1]
+        if file_id in self.sumidos:
+            self._json(
+                {
+                    "error": {
+                        "code": 404,
+                        "message": "File not found",
+                        "errors": [{"reason": "notFound", "message": "File not found"}],
+                    }
+                },
+                404,
+            )
+            return
         item = next((a for a in self.arquivos if a["id"] == file_id), {})
         self._json(item)
 
@@ -118,6 +131,7 @@ def service():
     _FakeDrive.paginas = [{"files": []}]
     _FakeDrive.paginar = 0
     _FakeDrive.falhar_com = None
+    _FakeDrive.sumidos = set()
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), _FakeDrive)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -457,6 +471,43 @@ def test_backup_registra_removido_na_origem(service, config, tmp_path):
     assert stats.removidos_na_origem == 1
     log = destino / "logs" / ".agebackup-removidos.log"
     assert "b.txt" in log.read_text(encoding="utf-8")
+
+
+def test_backup_classifica_remocao_sem_acesso(service, config, tmp_path):
+    """Arquivo que sumiu da listagem e dá 404 vira 'sem acesso', não removido."""
+    _FakeDrive.arquivos = [_arquivo("F1", "a.txt"), _arquivo("F2", "b.txt")]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    _FakeDrive.arquivos = [_arquivo("F1", "a.txt")]
+    _FakeDrive.sumidos = {"F2"}
+    stats = executar_backup(service, config, destino)
+
+    assert stats.removidos_sem_acesso == 1
+    assert stats.removidos_na_origem == 0
+    assert "1 sem acesso (fora do escopo)" in stats.resumo()
+    log = destino / "logs" / ".agebackup-removidos.log"
+    assert "sem_acesso\tb.txt" in log.read_text(encoding="utf-8")
+    # Não apaga o arquivo local: ele pode voltar ao escopo.
+    assert (destino / "b.txt").exists()
+
+
+def test_backup_classifica_remocao_excluido(service, config, tmp_path):
+    """Arquivo na lixeira do Drive é registrado como excluído."""
+    _FakeDrive.arquivos = [_arquivo("F1", "a.txt"), _arquivo("F2", "b.txt")]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    _FakeDrive.arquivos = [
+        _arquivo("F1", "a.txt"),
+        _arquivo("F2", "b.txt", trashed=True),
+    ]
+    stats = executar_backup(service, config, destino)
+
+    assert stats.removidos_na_origem == 1
+    assert stats.removidos_sem_acesso == 0
+    log = destino / "logs" / ".agebackup-removidos.log"
+    assert "excluido\tb.txt" in log.read_text(encoding="utf-8")
 
 
 def test_backup_nao_apaga_arquivo_removido(service, config, tmp_path):

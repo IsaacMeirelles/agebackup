@@ -179,11 +179,16 @@ def registrar_removidos(
     removidos: list[str],
     registros: dict[str, Registro],
     rotacionar: bool = False,
+    motivos: dict[str, str] | None = None,
 ) -> Path | None:
     """Acrescenta as remoções ao log e as retira do manifesto.
 
     Não apaga nenhum arquivo do disco. Devolve o caminho do log, ou None se
     não havia o que registrar.
+
+    ``motivos`` (opcional) mapeia caminho -> motivo (``sem_acesso``,
+    ``excluido`` ou ``removido``), gravado no log para diferenciar um arquivo
+    que saiu do escopo de um que foi excluído de verdade.
     """
     if not removidos:
         return None
@@ -199,7 +204,8 @@ def registrar_removidos(
         pasta_logs.mkdir(parents=True, exist_ok=True)
         with log.open("a", encoding="utf-8") as arquivo:
             for caminho in removidos:
-                arquivo.write(f"{momento}\t{caminho}\n")
+                motivo = (motivos or {}).get(caminho, "removido")
+                arquivo.write(f"{momento}\t{motivo}\t{caminho}\n")
     except OSError:
         return None
 
