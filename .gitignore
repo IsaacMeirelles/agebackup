@@ -18,3 +18,9 @@ config.json
 # Cache
 .ruff_cache/
 .pytest_cache/
+
+# Credenciais e ambiente local
+gitcred
+.opencode/
+.~lock.*
+*.log
