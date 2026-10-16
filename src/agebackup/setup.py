@@ -171,7 +171,21 @@ def mostrar_status() -> None:
         )
         print(f"    conta        : {cfg.account.email or '(nao definida)'}")
         print(f"    metodo       : {metodo}")
-        print(f"    autenticada  : {'sim' if cfg.account.verified else 'nao validada'}")
+        if (
+            cfg.account.auth_method == AUTH_SERVICE_ACCOUNT
+            and not info["chave_presente"]
+        ):
+            print("    autenticada  : NAO (chave de Service Account ausente)")
+            print(
+                f"    chave        : {cfg.account.service_account_key_path or '(nao definida)'}"
+            )
+            print(
+                "    acao         : rode `uv run agebackup-setup` para apontar a chave"
+            )
+        else:
+            print(
+                f"    autenticada  : {'sim' if cfg.account.verified else 'nao validada'}"
+            )
         print(f"    escopos      : {', '.join(cfg.account.scopes)}")
         print(f"    destino      : {cfg.backup.destination or '(nao definido)'}")
         print(f"    pasta Drive  : {cfg.backup.folder_id or '(Drive inteiro)'}")
@@ -301,9 +315,12 @@ def _configurar_service_account(form: AuthForm) -> AuthForm:
             print("    Este arquivo nao parece ser uma chave de Service Account.")
             continue
 
-        # Guarda o caminho absoluto: um caminho relativo quebraria se o AgeBackup
-        # fosse executado de outro diretório.
-        form.service_account_key_path = str(chave.resolve())
+        # Guarda o caminho protegido: copia a chave para CONFIG_DIR se estiver
+        # fora dele, evitando deixar a chave no repositório git.
+        caminho_protegido = config_mod.proteger_chave_service_account(
+            str(chave.resolve())
+        )
+        form.service_account_key_path = caminho_protegido
         form.email = dados.get("client_email", "")
         print(f"    OK: {form.email or 'conta de servico'}")
         return form

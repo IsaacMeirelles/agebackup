@@ -223,6 +223,46 @@ def test_status_resume_configuracao():
     assert info["config"].account.email == "u@e.com"
 
 
+def test_chave_presente_em_adc_sempre_verdadeiro():
+    assert AccountConfig(auth_method="adc").chave_presente() is True
+
+
+def test_chave_presente_service_account_ausente():
+    conta = AccountConfig(
+        auth_method="service_account",
+        service_account_key_path="/nao/existe/chave.json",
+    )
+    assert conta.chave_presente() is False
+
+
+def test_chave_presente_service_account_sem_caminho():
+    conta = AccountConfig(auth_method="service_account")
+    assert conta.chave_presente() is False
+
+
+def test_chave_presente_service_account_arquivo_existe(tmp_path):
+    chave = tmp_path / "chave.json"
+    chave.write_text("{}")
+
+    conta = AccountConfig(
+        auth_method="service_account", service_account_key_path=str(chave)
+    )
+    assert conta.chave_presente() is True
+
+
+def test_status_marca_chave_ausente(tmp_path):
+    config_mod.save(
+        Config(
+            account=AccountConfig(
+                auth_method="service_account",
+                service_account_key_path=str(tmp_path / "sumiu.json"),
+            )
+        )
+    )
+
+    assert config_mod.status()["chave_presente"] is False
+
+
 def test_logs_padrao_de_12_meses():
     assert LogConfig().keep_months == MESES_PADRAO
     assert LogConfig().compress is True

@@ -53,6 +53,19 @@ class AccountConfig:
     # Depois de uma autenticação bem-sucedida o usuário pode desligar isso.
     ask_reuse: bool = True
 
+    def chave_presente(self) -> bool:
+        """True se a credencial necessária existe no disco.
+
+        No modo Service Account a autenticação depende do arquivo JSON da
+        chave: se ele sumiu, a configuração está quebrada mesmo com
+        `verified` gravado. Em ADC não há arquivo próprio, então devolve True.
+        """
+        if self.auth_method != AUTH_SERVICE_ACCOUNT:
+            return True
+        if not self.service_account_key_path:
+            return False
+        return Path(self.service_account_key_path).expanduser().exists()
+
 
 @dataclass
 class LogConfig:
@@ -206,6 +219,44 @@ def clear() -> bool:
         return False
     CONFIG_FILE.unlink()
     return True
+
+
+def proteger_chave_service_account(caminho: str) -> str:
+    """Protege a chave de Service Account e devolve seu caminho final.
+
+    Se a chave já estiver dentro de CONFIG_DIR, apenas garante a permissão
+    correta (0o600). Caso contrário, copia a chave para CONFIG_DIR com
+    permissão restrita (0o600) e devolve esse novo caminho. Não remove o
+    arquivo original.
+    """
+    try:
+        chave = Path(caminho).expanduser().resolve()
+    except OSError:
+        return caminho
+
+    try:
+        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+        CONFIG_DIR.chmod(0o700)
+    except OSError:
+        pass
+
+    try:
+        if chave.is_relative_to(CONFIG_DIR):
+            chave.chmod(0o600)
+            return str(chave)
+
+        destino = CONFIG_DIR / chave.name
+        # Evita sobrescrever arquivos existentes com nomes iguais.
+        if destino.exists():
+            suffix = chave.stem + "-" + str(int(chave.stat().st_mtime)) + chave.suffix
+            destino = CONFIG_DIR / suffix
+        import shutil
+
+        shutil.copy2(chave, destino)
+        destino.chmod(0o600)
+        return str(destino)
+    except OSError:
+        return caminho
 
 
 class ConfigError(Exception):
@@ -423,4 +474,5 @@ def status() -> dict:
         "config_file": CONFIG_FILE,
         "config_exists": config is not None,
         "config": config,
+        "chave_presente": config.account.chave_presente() if config else False,
     }

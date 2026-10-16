@@ -529,4 +529,43 @@ def _status_fake():
         "config_file": config_mod.CONFIG_FILE,
         "config_exists": False,
         "config": None,
+        "chave_presente": False,
     }
+
+
+class TestMostrarStatus:
+    def _salvar_sa(self, home_isolado, caminho_chave, verified=True):
+        config_mod.save(
+            Config(
+                account=AccountConfig(
+                    auth_method=config_mod.AUTH_SERVICE_ACCOUNT,
+                    email="sa@projeto.iam.gserviceaccount.com",
+                    service_account_key_path=str(caminho_chave),
+                    verified=verified,
+                )
+            )
+        )
+
+    def _capturar(self):
+        saida = io.StringIO()
+        with mock.patch("sys.stdout", new=saida):
+            setup.mostrar_status()
+        return saida.getvalue()
+
+    def test_chave_ausente_nao_aparece_como_autenticada(self, home_isolado):
+        self._salvar_sa(home_isolado, home_isolado / "sumiu.json")
+
+        texto = self._capturar()
+
+        assert "chave de Service Account ausente" in texto
+        assert "uv run agebackup-setup" in texto
+
+    def test_chave_presente_mostra_autenticada(self, home_isolado):
+        chave = home_isolado / "chave.json"
+        chave.write_text("{}", encoding="utf-8")
+        self._salvar_sa(home_isolado, chave)
+
+        texto = self._capturar()
+
+        assert "autenticada  : sim" in texto
+        assert "ausente" not in texto
