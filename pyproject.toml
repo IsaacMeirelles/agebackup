@@ -1,0 +1,29 @@
+[project]
+name = "gback"
+version = "0.1.0"
+description = "Projeto gback"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "google-api-python-client>=2.201.0",
+    "google-auth>=2.61.0",
+    "google-auth-httplib2>=0.4.4",
+    "google-auth-oauthlib>=1.5.0",
+]
+
+[project.scripts]
+gback = "gback:main"
+gback-setup = "gback.setup:main"
+gback-backup = "gback.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.13.0,<0.14.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "black>=26.10.1",
+    "ipykernel>=7.4.0",
+    "pytest>=9.1.1",
+    "ruff>=0.17.0",
+]
