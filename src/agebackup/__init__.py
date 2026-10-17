@@ -1,6 +1,6 @@
 """agebackup — backup do Google Drive."""
 
-from agebackup import config, falhas, rotacao
+from agebackup import config, falhas, reconstruir, rotacao
 from agebackup.backup import FileEntry, Stats, executar_backup, listar_arquivos
 from agebackup.config import AccountConfig, BackupConfig, Config, ConfigError
 from agebackup.drive import (
@@ -38,6 +38,7 @@ __all__ = [
     "falhas",
     "get_service",
     "listar_arquivos",
+    "reconstruir",
     "resolve_destination",
     "rotacao",
 ]

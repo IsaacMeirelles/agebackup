@@ -1,10 +1,11 @@
 """Testes de download contra um servidor HTTP local, sem chamar a API real."""
 
+import http.client
 import http.server
 import json
 import threading
 from collections.abc import Iterator
-from typing import ClassVar
+from typing import ClassVar, Self
 
 import pytest
 from google.oauth2.credentials import Credentials
@@ -13,6 +14,7 @@ from googleapiclient.discovery import build
 from agebackup import drive
 from agebackup.drive import (
     DownloadRestrictedError,
+    ExportTooLargeError,
     FileNotFoundInDriveError,
     TransientDriveError,
     _unique_path,
@@ -32,6 +34,8 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
     payload = PAYLOAD
     metadata: ClassVar[dict[str, dict]] = {}
     status = 200
+    # motivo do erro devolvido quando status != 200; vazio usa o padrão por código
+    motivo: ClassVar[str] = ""
 
     def log_message(self, *args: object) -> None:
         pass
@@ -47,11 +51,14 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
         recorded.append(self.path)
 
         if self.status != 200:
-            reason = {
-                403: "insufficientFilePermissions",
-                404: "notFound",
-                429: "rateLimitExceeded",
-            }[self.status]
+            reason = (
+                self.motivo
+                or {
+                    403: "insufficientFilePermissions",
+                    404: "notFound",
+                    429: "rateLimitExceeded",
+                }[self.status]
+            )
             self._send(
                 self.status,
                 json.dumps(
@@ -67,6 +74,11 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
             )
             return
 
+        # Conteúdo devolvido pela URL de uma operação de longa duração.
+        if self.path.startswith("/conteudo"):
+            self._send(200, _FakeDrive.payload, "application/octet-stream")
+            return
+
         if "alt=media" not in self.path:
             file_id = self.path.rsplit("/", 1)[-1].split("?")[0]
             meta = _FakeDrive.metadata.get(
@@ -77,6 +89,17 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
 
         self._send(200, _FakeDrive.payload, "application/octet-stream")
 
+    def do_POST(self) -> None:  # nome exigido pelo BaseHTTPRequestHandler
+        recorded.append("POST " + self.path)
+        # Emula `files.download`: devolve uma operação já concluída, apontando
+        # para a URL onde o conteúdo está (o próprio servidor de teste).
+        porta = self.server.server_address[1]
+        corpo = {
+            "done": True,
+            "response": {"downloadUri": f"http://127.0.0.1:{porta}/conteudo"},
+        }
+        self._send(200, json.dumps(corpo).encode(), "application/json")
+
 
 @pytest.fixture
 def server() -> Iterator[http.server.HTTPServer]:
@@ -84,6 +107,7 @@ def server() -> Iterator[http.server.HTTPServer]:
     _FakeDrive.payload = PAYLOAD
     _FakeDrive.metadata = {}
     _FakeDrive.status = 200
+    _FakeDrive.motivo = ""
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), _FakeDrive)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -163,6 +187,22 @@ def test_export_usa_o_mimetype(service, tmp_path):
     )
 
 
+def test_export_grande_demais_vira_erro_proprio(service, tmp_path):
+    """O 403 de export grande demais não é confundido com falta de permissão."""
+    _FakeDrive.status = 403
+    _FakeDrive.motivo = "exportSizeLimitExceeded"
+
+    with pytest.raises(ExportTooLargeError):
+        export_document(service, "FILE_ID", tmp_path / "doc.pptx", "application/pdf")
+
+
+def test_export_403_de_permissao_continua_restrito(service, tmp_path):
+    _FakeDrive.status = 403
+
+    with pytest.raises(DownloadRestrictedError):
+        export_document(service, "FILE_ID", tmp_path / "doc.pdf", "application/pdf")
+
+
 def test_export_usa_endpoint_diferente_do_download(service, tmp_path):
     download_blob(service, "FILE_ID", tmp_path / "a.bin", check_permissions=False)
     export_document(service, "FILE_ID", tmp_path / "b.pdf")
@@ -171,6 +211,72 @@ def test_export_usa_endpoint_diferente_do_download(service, tmp_path):
         path.endswith("/export?mimeType=application%2Fpdf&alt=media")
         for path in recorded
     )
+
+
+def test_download_document_async_grava_o_original(service, tmp_path):
+    """O files.download (LRO) publica a URL e o conteúdo é gravado dali."""
+    destino = tmp_path / "saida.pptx"
+
+    resultado = drive.download_document_async(
+        service, "FILE_ID", destino, "application/pdf"
+    )
+
+    assert resultado == destino
+    assert destino.read_bytes() == PAYLOAD
+    # Passou pelo POST de /download (a operação longa), não pelo export.
+    assert any(linha.startswith("POST ") and "/download" in linha for linha in recorded)
+    assert any(linha.startswith("/conteudo") for linha in recorded)
+
+
+def test_download_document_async_sem_url_falha(monkeypatch, tmp_path):
+    """Operação concluída sem downloadUri vira erro de domínio, não silêncio."""
+
+    class _Req:
+        uri = "http://exemplo/download"
+        http = object()
+
+        def execute(self):
+            return {"done": True, "response": {}}
+
+    class _Files:
+        def download(self, **kwargs):
+            return _Req()
+
+    class _Service:
+        def files(self):
+            return _Files()
+
+    with pytest.raises(drive.AsyncDownloadError, match="não devolveu URL"):
+        drive.download_document_async(
+            _Service(), "FILE_ID", tmp_path / "x.pptx", "application/pdf"
+        )
+
+
+def test_aguardar_operacao_faz_polling(monkeypatch):
+    """Uma operação pendente é consultada até concluir."""
+    estados = [{"done": True, "response": {"downloadUri": "http://x/y"}}]
+    chamadas: list[str] = []
+
+    def consultar(http, nome):
+        chamadas.append(nome)
+        return estados.pop(0)
+
+    monkeypatch.setattr(drive, "_consultar_operacao", consultar)
+    monkeypatch.setattr(drive.time, "sleep", lambda *a: None)
+
+    resultado = drive._aguardar_operacao(
+        object(), {"done": False, "name": "op1"}, 5, 0.0
+    )
+
+    assert resultado["done"] is True
+    assert chamadas == ["op1"]
+
+
+def test_aguardar_operacao_propaga_erro(monkeypatch):
+    operacao = {"done": True, "error": {"message": "falhou feio"}}
+
+    with pytest.raises(drive.AsyncDownloadError, match="falhou feio"):
+        drive._aguardar_operacao(object(), operacao, 5, 0.0)
 
 
 def test_consulta_can_download_antes_de_baixar(service, tmp_path):
@@ -244,3 +350,48 @@ def test_get_service_traduz_credenciais_ausentes(monkeypatch):
 
     with pytest.raises(drive.DriveError, match="Credenciais"):
         drive.get_service()
+
+
+class _DownloaderQuebrado:
+    """Simula um downloader que estoura o erro informado no meio da transferência."""
+
+    def __init__(self, erro: Exception) -> None:
+        self.erro = erro
+
+    def __call__(self, *args: object, **kwargs: object) -> Self:
+        return self
+
+    def next_chunk(self):
+        raise self.erro
+
+
+@pytest.mark.parametrize(
+    "erro",
+    [
+        ConnectionResetError(104, "Connection reset by peer"),
+        BrokenPipeError(32, "Broken pipe"),
+        TimeoutError("timed out"),
+        http.client.IncompleteRead(b"parcial"),
+    ],
+)
+def test_download_erro_de_rede_vira_temporario(erro, tmp_path, monkeypatch):
+    """Quedas de rede no meio do download são repetíveis, não erro local."""
+    monkeypatch.setattr(drive, "MediaIoBaseDownload", _DownloaderQuebrado(erro))
+    destino = tmp_path / "saida.bin"
+
+    with pytest.raises(TransientDriveError):
+        drive._download(object(), destino)
+
+    assert not destino.exists()
+    assert list(tmp_path.iterdir()) == [], "não deixa o .tmp para trás"
+
+
+def test_download_erro_de_disco_nao_vira_temporario(tmp_path, monkeypatch):
+    """Disco cheio não melhora repetindo: continua sendo OSError comum."""
+    erro = OSError(28, "No space left on device")
+    monkeypatch.setattr(drive, "MediaIoBaseDownload", _DownloaderQuebrado(erro))
+
+    with pytest.raises(OSError) as excinfo:
+        drive._download(object(), tmp_path / "saida.bin")
+
+    assert not isinstance(excinfo.value, TransientDriveError)

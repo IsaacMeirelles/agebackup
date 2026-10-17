@@ -25,6 +25,8 @@ CAT_PERMISSAO = "permissao"
 CAT_INEXISTENTE = "inexistente"
 CAT_TEMPORARIA = "temporaria"
 CAT_OPERACAO_LONGA = "operacao_longa"
+# Export rejeitado por tamanho, mesmo no formato mais leve (PDF).
+CAT_GRANDE = "grande_demais"
 CAT_LOCAL = "erro_local"
 CAT_API = "erro_api"
 CAT_LISTAGEM = "listagem"
@@ -57,6 +59,7 @@ CATEGORIAS = frozenset(
         CAT_INEXISTENTE,
         CAT_TEMPORARIA,
         CAT_OPERACAO_LONGA,
+        CAT_GRANDE,
         CAT_LOCAL,
         CAT_API,
         CAT_LISTAGEM,
@@ -110,10 +113,13 @@ def categorizar(error: Exception) -> tuple[str, str]:
     """Deduz a categoria e o detalhe legível de uma exceção."""
     from agebackup.drive import (
         DownloadRestrictedError,
+        ExportTooLargeError,
         FileNotFoundInDriveError,
         TransientDriveError,
     )
 
+    if isinstance(error, ExportTooLargeError):
+        return CAT_GRANDE, "documento grande demais para exportar, mesmo em PDF"
     if isinstance(error, DownloadRestrictedError):
         return CAT_BLOQUEADO, "download bloqueado pelo dono do arquivo"
     if isinstance(error, FileNotFoundInDriveError):

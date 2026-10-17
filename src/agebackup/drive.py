@@ -5,19 +5,41 @@ Baseado em https://developers.google.com/workspace/drive/api/guides/manage-downl
 
 from __future__ import annotations
 
+import http.client
+import json
+import ssl
+import time
 from collections.abc import Iterator
 from pathlib import Path
+from urllib.parse import quote
 
 from googleapiclient.discovery import Resource, build
 from googleapiclient.errors import HttpError
-from googleapiclient.http import MediaIoBaseDownload
+from googleapiclient.http import HttpRequest, MediaIoBaseDownload
 
 DRIVE_API_NAME = "drive"
 DRIVE_API_VERSION = "v3"
 CHUNK_SIZE = 1024 * 1024 * 8
 
+# Operações de longa duração: `files.download` monta o arquivo no servidor e
+# devolve uma URL. Para documentos do Workspace volta pronta de imediato; o
+# polling cobre os casos assíncronos.
+DRIVE_OPERATIONS_URL = "https://www.googleapis.com/drive/v3/operations"
+LRO_MAX_TENTATIVAS = 60
+LRO_ESPERA = 2.0
+
 # Erros que valem a pena repetir: a API do Drive é sensível a throttling.
 TRANSIENT_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+# Erros de rede que podem acontecer no meio de um download e valem nova
+# tentativa: conexão reiniciada/rompida/recusada, timeout e corpo incompleto.
+# Um OSError genérico (disco cheio, permissão) fica de fora — repetir não ajuda.
+RETRYABLE_NETWORK_ERRORS = (
+    ConnectionError,
+    TimeoutError,
+    ssl.SSLError,
+    http.client.IncompleteRead,
+)
 
 
 class DriveError(Exception):
@@ -34,6 +56,19 @@ class FileNotFoundInDriveError(DriveError):
 
 class TransientDriveError(DriveError):
     """Falha temporária da API. Vale a pena tentar de novo."""
+
+
+class ExportTooLargeError(DriveError):
+    """O documento do Workspace excede o limite de 10 MB por exportação.
+
+    O limite é do `files.export`, por requisição. Formatos mais leves (ex.: PDF)
+    podem caber no limite mesmo quando o formato principal não cabe. O
+    `files.download` (operação de longa duração) não tem esse limite.
+    """
+
+
+class AsyncDownloadError(DriveError):
+    """A exportação assíncrona (`files.download`) falhou ou não concluiu."""
 
 
 def get_service(credentials: object | None = None) -> Resource:
@@ -81,6 +116,13 @@ def _raise_for_status(error: HttpError) -> None:
     }
 
     if status == 403:
+        # O export de documentos do Workspace tem limite de 10 MB. É um 403 com
+        # o motivo exportSizeLimitExceeded; tratamos à parte porque há saída:
+        # exportar num formato mais leve (PDF).
+        if "exportSizeLimitExceeded" in codes:
+            raise ExportTooLargeError(
+                "Documento do Workspace excede o limite de 10 MB do files.export"
+            ) from error
         # Na API do Drive, 403 na prática significa permissão ou download
         # bloqueado. Rate limit é 429, então não há risco de confusão.
         detalhe = f": {codes}" if codes else ""
@@ -146,6 +188,12 @@ def _download(request: object, destination: Path) -> Path:
     except HttpError as error:
         partial.unlink(missing_ok=True)
         _raise_for_status(error)
+    except RETRYABLE_NETWORK_ERRORS as error:
+        # Queda de rede no meio da transferência: trata como falha temporária
+        # para o chamador repetir (licao09.mp3 caiu com "Connection reset by
+        # peer", licao10.mp3 com "Broken pipe").
+        partial.unlink(missing_ok=True)
+        raise TransientDriveError(f"Falha de rede no download: {error}") from error
     except OSError:
         partial.unlink(missing_ok=True)
         raise
@@ -211,6 +259,108 @@ def export_document(
     if shared_drive:
         request.uri += "&supportsAllDrives=true"
     return _download(request, destination)
+
+
+def _consultar_operacao(http: object, nome: str) -> dict:
+    """Consulta o estado de uma operação de longa duração (files.download)."""
+    url = f"{DRIVE_OPERATIONS_URL}/{quote(nome, safe='')}"
+    resposta, conteudo = http.request(
+        url, method="GET", headers={"Accept": "application/json"}
+    )
+    if resposta.status >= 400:
+        raise TransientDriveError(
+            f"Falha ao consultar a operação de download ({resposta.status})"
+        )
+    return json.loads(conteudo)
+
+
+def _aguardar_operacao(
+    http: object, operacao: dict, max_tentativas: int, espera: float
+) -> dict:
+    """Aguarda a operação de longa duração terminar.
+
+    Para documentos do Workspace ela volta pronta de imediato. O polling cobre os
+    casos assíncronos (ex.: Google Vids), que demoram para montar o arquivo.
+    """
+    tentativas = 0
+    while not operacao.get("done"):
+        nome = operacao.get("name")
+        if not nome:
+            raise AsyncDownloadError("Operação de download sem nome para consultar")
+        if tentativas >= max_tentativas:
+            raise AsyncDownloadError("Operação de download demorou demais")
+        time.sleep(espera)
+        operacao = _consultar_operacao(http, nome)
+        tentativas += 1
+
+    erro = operacao.get("error")
+    if erro:
+        mensagem = erro.get("message", "") if isinstance(erro, dict) else str(erro)
+        raise AsyncDownloadError(f"Operação de download falhou: {mensagem}")
+    return operacao
+
+
+def download_document_async(
+    service: Resource,
+    file_id: str,
+    destination: Path,
+    mime_type: str,
+    shared_drive: bool = False,
+    max_tentativas: int = LRO_MAX_TENTATIVAS,
+    espera: float = LRO_ESPERA,
+) -> Path:
+    """Exporta um documento grande via `files.download` (operação longa).
+
+    Diferente do `files.export` — limitado a 10 MB por requisição —, o
+    `files.download` monta o arquivo no servidor e devolve uma URL de download,
+    **sem esse limite**. Exige apenas o escopo `drive.readonly` e é o único
+    caminho para formatos que o export não aceita (ex.: Google Vids).
+
+    https://developers.google.com/workspace/drive/api/reference/rest/v3/files/download
+
+    Args:
+        service: cliente da Drive API.
+        file_id: ID do documento no Drive.
+        destination: caminho local de destino. Sobrescrito se existir.
+        mime_type: formato de destino (ex.: o `.pptx` de uma apresentação).
+        shared_drive: acrescentar `supportsAllDrives` à requisição.
+        max_tentativas: consultas à operação antes de desistir.
+        espera: segundos entre as consultas.
+
+    Returns:
+        Caminho do arquivo gravado.
+    """
+    try:
+        requisicao = service.files().download(fileId=file_id, mimeType=mime_type)
+    except AttributeError as error:
+        raise AsyncDownloadError(
+            "Cliente do Drive sem suporte a files.download"
+        ) from error
+
+    if shared_drive:
+        requisicao.uri += "&supportsAllDrives=true"
+
+    try:
+        operacao = requisicao.execute()
+    except HttpError as error:
+        _raise_for_status(error)
+
+    http = requisicao.http
+    operacao = _aguardar_operacao(http, operacao, max_tentativas, espera)
+
+    uri = (operacao.get("response") or {}).get("downloadUri")
+    if not uri:
+        raise AsyncDownloadError(f"files.download não devolveu URL para {file_id}")
+
+    pedido = HttpRequest(
+        http=http,
+        postproc=lambda *args, **kwargs: None,
+        uri=uri,
+        method="GET",
+        headers={},
+        body=None,
+    )
+    return _download(pedido, destination)
 
 
 def download_to(

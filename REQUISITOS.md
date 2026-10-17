@@ -494,6 +494,92 @@ Arquivos que estão na raiz do Drive caem direto no destino, sem subpasta.
 Nomes repetidos na mesma pasta ganham sufixo `(1)`, `(2)`, ... — o AgeBackup nunca
 sobrescreve um arquivo existente.
 
+#### Documentos do Google (Docs, Sheets, Slides, Desenhos)
+
+Arquivos nativos do Google não têm conteúdo para baixar direto: o AgeBackup os
+exporta para um formato comum e **acrescenta a extensão** ao nome (que no Drive
+não tem uma):
+
+| Tipo no Drive | Exportado como |
+| --- | --- |
+| Documento (`application/vnd.google-apps.document`) | `.docx` |
+| Planilha (`...spreadsheet`) | `.xlsx` |
+| Apresentação (`...presentation`) | `.pptx` |
+| Desenho (`...drawing`) | `.pdf` |
+| Script (`...script`) | `.json` |
+| Vídeo / Google Vids (`...video`) | `.mp4` (só via `files.download`) |
+
+O `files.export` da API tem **limite de 10 MB por requisição**. Quando o formato
+principal não cabe, o AgeBackup usa o `files.download` — uma **operação de longa
+duração** (LRO) em que o Google monta o arquivo no servidor e devolve uma URL,
+**sem esse limite**. O resultado é o **próprio original editável**, gravado com o
+nome normal (`Proposta de consultoria.pptx`), e exige apenas o escopo
+`drive.readonly` — **sem** habilitar as APIs nativas.
+
+```
+files.export (rápido) ─ exportSizeLimitExceeded ─▶ files.download (LRO, sem 10 MB)
+                                                       │ falhou
+                                                       ▼
+                                             PDF (comprime as mídias)
+                                                       │ falhou
+                                                       ▼
+                                    reconstrução nativa (.reconstruido) / .md
+```
+
+Se o `files.download` falhar, o AgeBackup cai para o **PDF**, que costuma ser bem
+menor porque comprime as mídias. Quando a API nativa correspondente está
+habilitada (Slides, Docs, Sheets), ele ainda **reconstrói o formato editável** a
+partir dela — gravando um arquivo extra com o sufixo `.reconstruido`
+(ex.: `Proposta de consultoria.reconstruido.pptx`), ao lado do PDF:
+
+| Nativo grande | Original (`files.download`) | PDF (reserva) | Reconstruído (best-effort) | API p/ reconstruir |
+| --- | --- | --- | --- | --- |
+| Apresentação | `.pptx` | `.pdf` | `.reconstruido.pptx` | Slides API |
+| Documento | `.docx` | `.pdf` | `.reconstruido.docx` | Docs API |
+| Documento (sem Docs API) | `.docx` | `.pdf` | `.reconstruido.md` | Drive API (`text/markdown`) |
+| Planilha | `.xlsx` | `.pdf` | `.reconstruido.xlsx` | Sheets API |
+| Desenho | `.pdf` | `.pdf` | — (o PDF já é o formato) | — |
+
+Um **Google Docs** grande tem um plano B que dispensa a Docs API: o Drive exporta
+o documento como `text/markdown`, então ele sempre sai também como `.md` (texto
+editável e pequeno). Planilhas gigantes são lidas em blocos de 5000 linhas
+(`'Aba'!A1:Z5000`, `'Aba'!A5001:Z10000`, ...) para não estourar o tamanho da
+resposta nem a memória.
+
+A reconstrução é **estrutural**, não byte a byte: preserva texto, formas,
+imagens, tabelas, células e fórmulas, mas não o tema/matriz, as transições, as
+animações nem a mídia embutida (vídeo). Por isso ela leva o sufixo
+`.reconstruido` e **não entra no manifesto** (o PDF é quem representa o arquivo
+do Drive). Já o arquivo vindo do `files.download` é um export fiel e leva o nome
+normal.
+
+O **Google Vids** (`application/vnd.google-apps.video`) é um caso à parte: ele
+**recusa** o `files.export` (`fileNotExportable`) e **não tem** PDF nem
+reconstrução de reserva — o `files.download` é o único caminho, e entrega um
+`.mp4`. Por isso ele vai direto para o LRO (sem tentar o export) e, se o download
+falhar mesmo após as repetições, é registrado como falha (`operacao_longa`).
+
+O conteúdo visível fica sempre garantido: no original (`files.download`) ou no
+PDF. Se o PDF for usado e a reconstrução falhar, o PDF é mantido e o arquivo
+entra na lista de `--listar-grandes` (com o link do original no Drive), **sem
+contar como falha**. Se nem o PDF couber, o editável reconstruído (ou o `.md` do
+Doc) vira o próprio arquivo salvo, para o backup não ficar vazio. Só se nada
+disso der certo o arquivo vira uma falha `grande_demais` no log, sem nada salvo
+(o original continua intacto no Drive).
+
+Reconstruir um original grande pela API nativa exige as APIs habilitadas no mesmo
+projeto Google das credenciais. Sem elas, o backup funciona igual: o
+`files.download` já traz o original e, no pior caso, o PDF é mantido (e, para
+Docs, o `.md`).
+
+O limite de 10 MB é imposto pelo **servidor** do Google (`files.export`), então
+nenhuma biblioteca de terceiros (wrappers da Drive API) consegue contorná-lo pelo
+mesmo endpoint. O `files.download` é o caminho oficial sem o limite (e só com
+`drive.readonly`); as APIs nativas servem como alternativa de reconstrução. Para
+os arquivos **enviados** (não nativos), que não têm esse limite, o download é
+feito em blocos (8 MB por vez), direto para o disco, o que também evita carregar
+arquivos grandes inteiros na memória.
+
 #### `folder_id` — **tem mais de uma opção**
 
 Qual pasta do Drive copiar. Vazio significa o Drive inteiro.
@@ -688,10 +774,12 @@ rebaixa o que mudou.
 | `--dry-run` | Só lista; não grava nada |
 | `--verbose`, `-v` | Mostra também os inalterados |
 | `--falhas` | Lista as últimas falhas registradas |
+| `--listar-grandes` | Lista os grandes que ainda estão só em PDF (esconde os já recuperados) |
+| `--reconstruir-grandes` | Baixa o original/editável dos grandes já em PDF (`files.download`; reconstrução nativa como reserva) |
 | `--logs` | Mostra os logs, a política e os comprimidos |
 
-**Código de saída:** `0` se tudo deu certo, `1` se houve falha **ou** algum
-arquivo exigiu operação de longa duração (ver [seção 11](#11-limitações-conhecidas)).
+**Código de saída:** `0` se tudo deu certo, `1` se houve falha (ver
+[seção 11](#11-limitações-conhecidas)).
 
 ---
 
@@ -771,20 +859,21 @@ falsos positivos:
   Falhas (2):
     - contrato-restrito.pdf: bloqueado
         download bloqueado pelo dono do arquivo
-    - video-grande.mp4: operacao_longa
-        o tipo application/vnd.google-apps.video não aceita files.export
+    - video-grande: operacao_longa
+        exige files.download (operação de longa duração); motivo da API: fileNotExportable
 ```
 
 Categorias:
 
 | Categoria | Significado | O que fazer |
 | --- | --- | --- |
-| `operacao_longa` | Só baixa via `files.download` (LRO) | Ainda não suportado |
+| `operacao_longa` | Tipo que só o `files.download` (LRO) entrega (ex.: Google Vids) e cujo download falhou | Repita; se persistir, baixe pela web |
+| `grande_demais` | Passou de 10 MB e nem PDF nem editável couberam | Baixe o original pela web |
 | `bloqueado` | O dono restringiu o download | Nada a fazer |
 | `permissao` | Sem permissão de leitura | Verifique a conta |
 | `inexistente` | Sumiu do Drive durante o backup | Normal |
 | `cota_excedida` | Limite de requisições da API | Espere ou peça mais cota |
-| `temporaria` | Erro 429/500/503 | Repita; já tentou 3x sozinho |
+| `temporaria` | Erro 429/500/503 ou queda de rede | Repita; já tentou 3x sozinho |
 | `erro_local` | Disco cheio, permissão de pasta | Verifique o destino |
 | `erro_api` | Outro erro da API | Veja o detalhe no log |
 | `listagem` | A listagem parou no meio | Repita o backup |
@@ -800,7 +889,7 @@ grep "^2026-10-12" ~/agebackup/logs/.agebackup-falhas.log
 # quantas de cada tipo
 awk -F'\t' '{print $3}' ~/agebackup/logs/.agebackup-falhas.log | sort | uniq -c
 
-# só as que exigem operação longa
+# só as que falharam por exigir operação longa
 awk -F'\t' '$3=="operacao_longa" {print $2}' ~/agebackup/logs/.agebackup-falhas.log
 ```
 
@@ -899,6 +988,8 @@ Detalhes que importam:
 | `uv run agebackup-backup` | Executa |
 | `uv run agebackup-backup -v` | Detalhado |
 | `uv run agebackup-backup --falhas` | Últimas falhas |
+| `uv run agebackup-backup --listar-grandes` | Grandes ainda só em PDF (com link) |
+| `uv run agebackup-backup --reconstruir-grandes` | Baixa o original dos grandes já em PDF |
 | `uv run agebackup-backup --logs` | Logs e política de rotação |
 
 ---
@@ -989,7 +1080,8 @@ Seja claro sobre o que **não** funciona:
 
 | Limitação | Detalhe |
 | --- | --- |
-| **Não executa operações de longa duração** | Google Vids e documentos do Workspace acima de 10 MB ficam registrados como `operacao_longa`, sem serem baixados |
+| **Reconstrução nativa é estrutural, não fiel** | Quando o `files.download` falha, o AgeBackup cai para `.pdf` (e reconstrói o formato editável quando a API nativa está habilitada; um Doc grande ainda sai como `.md` pelo export do Drive). A reconstrução preserva o conteúdo, mas não o tema/transições/mídia — por isso leva o sufixo `.reconstruido`. Só se nada der certo o arquivo vira `grande_demais` |
+| **Alguns tipos nativos exigem `files.download`** | O Google Vids (`application/vnd.google-apps.video`) recusa `files.export` (`fileNotExportable`) e só sai como `.mp4` pelo `files.download` (LRO). Se esse download falhar mesmo após as repetições, o arquivo é registrado como `operacao_longa` |
 | **Não sincroniza de volta** | É somente leitura, por opção de segurança |
 | **Não apaga arquivos locais** | Só registra a remoção no log |
 | **Não baixa versões anteriores** | Só a versão atual de cada arquivo |
@@ -999,7 +1091,7 @@ Seja claro sobre o que **não** funciona:
 
 ### Sobre a última limitação
 
-Isto é importante: o código está coberto por **248 testes** que rodam contra um
+Isto é importante: o código está coberto por **323 testes** que rodam contra um
 servidor HTTP local emulado, reproduzindo o comportamento da API. O caminho
 real já foi exercitado manualmente (leitura somente, com uma Service Account),
 mas não é coberto pela suíte automatizada.
@@ -1020,9 +1112,10 @@ pequena (usando `folder_id`) antes de soltar o Drive inteiro.
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── falhas.py      # log de falhas
 │   ├── manifest.py    # manifesto e log de remoções
+│   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação mensal e retenção
 │   └── setup.py       # tela de configuração
-├── tests/             # 248 testes
+├── tests/             # 323 testes
 ├── USERGUIDE.md        # guia do usuário
 └── .opencode/skills/  # documentação de referência da API
 ```

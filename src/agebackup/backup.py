@@ -14,14 +14,17 @@ from googleapiclient.errors import HttpError
 
 from agebackup import falhas as falhas_mod
 from agebackup import manifest as manifest_mod
+from agebackup import reconstruir as reconstruir_mod
 from agebackup import rotacao
-from agebackup.config import Config, ConfigError
+from agebackup.config import Config, ConfigError, describe_error
 from agebackup.drive import (
     DownloadRestrictedError,
     DriveError,
+    ExportTooLargeError,
     TransientDriveError,
     _unique_path,
     download_blob,
+    download_document_async,
     export_document,
     file_name,
 )
@@ -36,7 +39,38 @@ EXPORTABLE = {
     "application/vnd.google-apps.presentation": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     "application/vnd.google-apps.drawing": "application/pdf",
     "application/vnd.google-apps.script": "application/vnd.google-apps.script+json",
+    # Google Vids: o files.export recusa (fileNotExportable); só o files.download
+    # (LRO) entrega, como MP4. Ver LRO_SOMENTE.
+    "application/vnd.google-apps.video": "video/mp4",
 }
+
+# Extensão local correspondente a cada formato exportado. Sem isso os documentos
+# do Google eram gravados sem extensão (o nome no Drive não tem uma), o que
+# deixava o arquivo inutilizável ao abrir por duplo clique.
+EXTENSAO_EXPORT = {
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "application/vnd.oasis.opendocument.presentation": ".odp",
+    "application/pdf": ".pdf",
+    "application/vnd.google-apps.script+json": ".json",
+    "text/plain": ".txt",
+    "text/csv": ".csv",
+    "video/mp4": ".mp4",
+}
+
+# Quando o formato principal estoura o limite de 10 MB do files.export, tenta-se
+# este. O PDF costuma ser bem menor (comprime as mídias), então Slides grandes
+# que falham como .pptx costumam caber como .pdf.
+FORMATO_FALLBACK = "application/pdf"
+
+# Um Google Docs também pode ser exportado como texto (Markdown), que é pequeno e
+# editável. Serve de plano B quando o .docx estoura o limite e a Docs API nativa
+# não está disponível: é um export do Drive, então basta a Drive API.
+MIME_DOCUMENTO = "application/vnd.google-apps.document"
+FORMATO_TEXTO = "text/markdown"
+EXTENSAO_TEXTO = ".md"
+
 # Policy now comes from config; keep default for backward compat reference
 MAX_RETRIES_DEFAULT = 3
 RETRY_DELAY = 2.0
@@ -49,13 +83,16 @@ REMOCAO_SEM_ACESSO = "sem_acesso"
 REMOCAO_EXCLUIDO = "excluido"
 REMOCAO_REMOVIDO = "removido"
 
-# Arquivos que só podem ser baixados por operação de longa duração (LRO),
-# via método files.download. Não há caminho alternativo.
+# Tipos nativos que **só** o `files.download` (operação de longa duração, LRO)
+# entrega: o `files.export` devolve `fileNotExportable`. Não há export
+# alternativo, então não se tenta o formato principal — vai direto para o LRO.
 #
-# O Google Vids é o caso documentado: files.export devolve fileNotExportable
-# ("Google Vids does not support files.export. Use files.download").
-# https://developers.google.com/workspace/drive/api/guides/handle-errors
-REQUER_LRO = frozenset(
+# O Google Vids é o caso documentado (baixado como MP4):
+# https://developers.google.com/workspace/drive/api/guides/ref-export-formats
+#
+# Documentos do Workspace grandes também usam `files.download`, mas por outro
+# caminho (`_baixar_nativo_grande`), que ainda tem o PDF como reserva.
+LRO_SOMENTE = frozenset(
     {
         "application/vnd.google-apps.video",  # Google Vids
     }
@@ -64,8 +101,6 @@ REQUER_LRO = frozenset(
 # Motivos de erro que indicam que a operação de longa duração resolveria.
 # Mantidos em falhas.py, que é quem faz a classificação.
 
-# O export de documentos do Workspace tem limite de 10 MB.
-LIMITE_EXPORT = 10 * 1024 * 1024
 PAGE_SIZE = 100
 
 
@@ -95,7 +130,11 @@ class Stats:
     bytes_novos: int = 0
     removidos_na_origem: int = 0
     removidos_sem_acesso: int = 0
+    # Baixados por operação de longa duração (LRO), tipos sem export (ex.: Vids).
     requer_lro: int = 0
+    # Arquivos nativos grandes demais para exportar: ficaram em PDF (aparência
+    # garantida), mas o original editável precisa ser baixado pela web.
+    originais_pendentes: int = 0
     dry_run: bool = False
     falhas_registro: list[Falha] = field(default_factory=list)
 
@@ -116,7 +155,9 @@ class Stats:
         if self.removidos_sem_acesso:
             partes.append(f"{self.removidos_sem_acesso} sem acesso (fora do escopo)")
         if self.requer_lro:
-            partes.append(f"{self.requer_lro} exigem operação longa")
+            partes.append(f"{self.requer_lro} por operação longa")
+        if self.originais_pendentes:
+            partes.append(f"{self.originais_pendentes} com original grande")
         if self.falhas:
             partes.append(f"{self.falhas} falhas")
         if self.bytes_novos:
@@ -273,29 +314,6 @@ def listar_arquivos(
         yield _entrada(item, _caminhos_dos_pais(por_id, item["id"], memo))
 
 
-def exige_operacao_longa(entrada: FileEntry) -> str:
-    """Diz se o arquivo só pode ser baixado por operação de longa duração.
-
-    Devolve o motivo (string) quando exige, ou string vazia quando não.
-    O agebackup não executa LRO, então esses arquivos são registrados como
-    pendentes em vez de tentados.
-    """
-    if entrada.mime_type in REQUER_LRO:
-        return (
-            f"o tipo {entrada.mime_type} não aceita files.export; "
-            "exige files.download (operação longa)"
-        )
-
-    if entrada.mime_type in EXPORTABLE and entrada.size > LIMITE_EXPORT:
-        tamanho_mb = entrada.size / (1024 * 1024)
-        return (
-            f"documento de {tamanho_mb:.1f}MB excede o limite de "
-            f"{LIMITE_EXPORT // (1024 * 1024)}MB do files.export"
-        )
-
-    return ""
-
-
 def _eh_pasta(mime_type: str) -> bool:
     return mime_type == "application/vnd.google-apps.folder"
 
@@ -320,6 +338,242 @@ def _destino_existente(arquivo: Path, entrada: FileEntry) -> Path | None:
     return None
 
 
+def _destino_export(destino: Path, formato: str | None) -> Path:
+    """Caminho local de um export, com a extensão do formato.
+
+    O nome no Drive dos documentos do Workspace não traz extensão. Sem
+    acrescentar, o arquivo exportado ficaria sem uma e o sistema não saberia
+    com que programa abrir. É idempotente: se o nome já terminar na extensão,
+    devolve o caminho como está.
+    """
+    extensao = EXTENSAO_EXPORT.get(formato)
+    if not extensao or destino.name.lower().endswith(extensao):
+        return destino
+    return destino.with_name(destino.name + extensao)
+
+
+def _sem_extensao_export(destino: Path, formato: str | None) -> Path:
+    """Remove a extensão de um export, para trocá-la por outra."""
+    extensao = EXTENSAO_EXPORT.get(formato)
+    if extensao and destino.name.lower().endswith(extensao):
+        return destino.with_name(destino.name[: -len(extensao)])
+    return destino
+
+
+# Extensões de um editável recuperável: os formatos de export e o `.md` dos Docs.
+EXTENSOES_RECUPERADAS = tuple(
+    extensao
+    for extensao in (*EXTENSAO_EXPORT.values(), EXTENSAO_TEXTO)
+    if extensao != EXTENSAO_EXPORT.get(FORMATO_FALLBACK)
+)
+
+
+def original_recuperado(pdf: Path) -> bool:
+    """Diz se já há um original/editável ao lado do PDF.
+
+    Reconhece o export fiel (``Nome.pptx``, vindo do ``files.download``) e as
+    reconstruções (``Nome.reconstruido.pptx``, ``Nome.reconstruido.md``).
+    """
+    base = _sem_extensao_export(pdf, FORMATO_FALLBACK)
+    sufixos = ("", reconstruir_mod.SUFIXO_RECONSTRUIDO)
+    return any(
+        base.with_name(f"{base.name}{sufixo}{extensao}").exists()
+        for sufixo in sufixos
+        for extensao in EXTENSOES_RECUPERADAS
+    )
+
+
+def pendentes_de_original(destino_raiz: Path, pasta_logs: Path) -> set[str]:
+    """IDs dos nativos grandes que ainda **não** têm o original ao lado do PDF.
+
+    Cruza o log (categoria ``grande_demais``) com o manifesto para achar o
+    caminho do PDF e conferir se o original/editável já foi recuperado. Serve
+    para ``--listar-grandes`` não listar o que já foi resolvido: o log é
+    histórico e não é reescrito quando o arquivo é recuperado.
+    """
+    extensao_pdf = EXTENSAO_EXPORT.get(FORMATO_FALLBACK, ".pdf")
+    pdf_por_id: dict[str, Path] = {}
+    for caminho, registro in manifest_mod.carregar(destino_raiz).items():
+        if caminho.lower().endswith(extensao_pdf):
+            pdf_por_id.setdefault(registro.drive_id, destino_raiz / caminho)
+
+    pendentes: set[str] = set()
+    for linha in falhas_mod.ler(pasta_logs):
+        if linha.get("categoria") != falhas_mod.CAT_GRANDE:
+            continue
+        drive_id = linha.get("drive_id", "")
+        if not drive_id:
+            continue
+        pdf = pdf_por_id.get(drive_id)
+        if pdf is None or not original_recuperado(pdf):
+            pendentes.add(drive_id)
+    return pendentes
+
+
+def _excedeu_export(entrada: FileEntry, gravado: Path) -> bool:
+    """Diz se o arquivo salvou no formato de fallback (PDF) em vez do principal.
+
+    Compara a extensão esperada com a gravada. É como o motor descobre, depois
+    do download, que aquele nativo era grande demais para exportar.
+    """
+    formato = EXPORTABLE.get(entrada.mime_type)
+    if not formato:
+        return False
+    extensao = EXTENSAO_EXPORT.get(formato, "")
+    if not extensao or extensao == EXTENSAO_EXPORT.get(FORMATO_FALLBACK, ""):
+        return False
+    return not gravado.name.lower().endswith(extensao)
+
+
+def _destino_reconstruido(
+    destino: Path, formato: str | None, mime_type: str
+) -> Path | None:
+    """Caminho do sidecar editável (``Nome.reconstruido.pptx``).
+
+    Devolve None quando o tipo não tem reconstrutor ou o formato não tem
+    extensão conhecida.
+    """
+    extensao = reconstruir_mod.extensao_de(mime_type)
+    if not extensao:
+        return None
+    base = _sem_extensao_export(destino, formato)
+    return base.with_name(base.name + reconstruir_mod.SUFIXO_RECONSTRUIDO + extensao)
+
+
+def _exportar_texto(
+    service, mime_type: str, file_id: str, destino: Path, formato: str | None
+) -> Path | None:
+    """Salva um Google Docs grande como ``.md`` (plano B pela Drive API).
+
+    O ``text/markdown`` é um export do Drive, então funciona mesmo com a Docs API
+    desabilitada. Devolve None quando não é um documento ou quando o export
+    falha; nunca interrompe o backup.
+    """
+    if mime_type != MIME_DOCUMENTO:
+        return None
+
+    base = _sem_extensao_export(destino, formato)
+    alvo = base.with_name(
+        base.name + reconstruir_mod.SUFIXO_RECONSTRUIDO + EXTENSAO_TEXTO
+    )
+    try:
+        return export_document(service, file_id, alvo, FORMATO_TEXTO)
+    except (DriveError, OSError) as error:
+        print(
+            f"\n    texto (Markdown) indisponível ({describe_error(error)})",
+            file=sys.stderr,
+        )
+        return None
+
+
+def _reconstruir_se_possivel(
+    service, entrada: FileEntry, destino: Path, formato: str | None
+) -> Path | None:
+    """Tenta salvar o original editável ao lado do PDF. Nunca interrompe.
+
+    Primeiro tenta a API nativa (``.pptx``/``.docx``/``.xlsx``). Se ela estiver
+    desabilitada ou falhar, um Google Docs ainda vira ``.md`` pelo export do
+    Drive — que só exige a Drive API. É um extra: se nada der certo, o PDF
+    permanece e o arquivo entra em ``--listar-grandes`` para baixar pela web.
+    """
+    alvo = _destino_reconstruido(destino, formato, entrada.mime_type)
+    if alvo is None:
+        return None
+
+    try:
+        caminho = reconstruir_mod.reconstruir(entrada.mime_type, entrada.file_id, alvo)
+    except Exception as error:  # noqa: BLE001 - o PDF já garante o essencial
+        caminho = _exportar_texto(
+            service, entrada.mime_type, entrada.file_id, destino, formato
+        )
+        if caminho is not None:
+            print(f"\r    texto salvo {caminho.name}  ", file=sys.stderr)
+            return caminho
+        print(
+            f"\n    original editável indisponível "
+            f"({describe_error(error)}); baixe pela web",
+            file=sys.stderr,
+        )
+        return None
+
+    print(f"\r    reconstruído {caminho.name}  ", file=sys.stderr)
+    return caminho
+
+
+def _baixar_uma_vez(service, entrada: FileEntry, destino: Path) -> Path:
+    """Baixa (ou exporta) o arquivo uma vez, sem repetir por falha temporária.
+
+    Documentos do Workspace vão no formato principal. Quando esse formato
+    estoura o limite de 10 MB por requisição, a estratégia está em
+    `_baixar_nativo_grande`. Tipos sem export (ex.: Google Vids) vão direto para
+    o `files.download` (LRO), o único caminho que os entrega.
+    """
+    formato = EXPORTABLE.get(entrada.mime_type)
+    if not formato:
+        return download_blob(service, entrada.file_id, destino, check_permissions=False)
+
+    alvo = _destino_export(destino, formato)
+    if entrada.mime_type in LRO_SOMENTE:
+        return download_document_async(service, entrada.file_id, alvo, formato)
+
+    try:
+        return export_document(service, entrada.file_id, alvo, formato)
+    except ExportTooLargeError:
+        return _baixar_nativo_grande(service, entrada, destino, formato)
+
+
+def _baixar_nativo_grande(
+    service, entrada: FileEntry, destino: Path, formato: str
+) -> Path:
+    """Resolve um nativo que estourou o limite de 10 MB do ``files.export``.
+
+    Tenta, nesta ordem:
+
+    1. o próprio **original editável**, via ``files.download`` (operação de longa
+       duração), que **não tem** o limite de 10 MB nem exige a API nativa;
+    2. o **PDF**, que comprime as mídias e costuma caber — guardado como o
+       arquivo principal, com o editável reconstruído ao lado (``.reconstruido``);
+    3. se nem o PDF couber, a **reconstrução** (ou o ``.md`` de um Doc) vira o
+       próprio arquivo, para o backup não ficar sem nada.
+
+    Uma falha temporária na etapa 1 sobe para ``_baixar_com_retry`` repetir; as
+    demais caem para o PDF.
+    """
+    # 1) O melhor resultado: o próprio original editável, sem o limite de 10 MB.
+    try:
+        gravado = download_document_async(
+            service, entrada.file_id, _destino_export(destino, formato), formato
+        )
+    except TransientDriveError:
+        # Deixa o retry decidir: pode ser só throttling, e o original vale a pena.
+        raise
+    except (DriveError, OSError) as error:
+        print(
+            f"\n    download direto indisponível ({describe_error(error)})",
+            file=sys.stderr,
+        )
+    else:
+        print(f"\r    original salvo {gravado.name}  ", file=sys.stderr)
+        return gravado
+
+    # 2) PDF, que comprime as mídias e costuma caber no limite.
+    base = _sem_extensao_export(destino, formato)
+    alvo = _destino_export(base, FORMATO_FALLBACK)
+    print(f"    export grande demais, repetindo em {alvo.name}", file=sys.stderr)
+    try:
+        gravado = export_document(service, entrada.file_id, alvo, FORMATO_FALLBACK)
+    except ExportTooLargeError:
+        # Nem o PDF coube. Antes de desistir, tenta o editável (API nativa, ou o
+        # .md de um Doc), que não passam pelo limite do export.
+        print("    PDF também grande demais; tentando o editável", file=sys.stderr)
+        editavel = _reconstruir_se_possivel(service, entrada, destino, formato)
+        if editavel is None:
+            raise
+        return editavel
+    _reconstruir_se_possivel(service, entrada, destino, formato)
+    return gravado
+
+
 def _baixar_com_retry(
     service, entrada: FileEntry, destino: Path, max_retries: int = MAX_RETRIES_DEFAULT
 ) -> Path:
@@ -332,14 +586,7 @@ def _baixar_com_retry(
     tentativa = 0
     while True:
         try:
-            if entrada.mime_type in EXPORTABLE:
-                gravado = export_document(
-                    service, entrada.file_id, destino, EXPORTABLE[entrada.mime_type]
-                )
-            else:
-                gravado = download_blob(
-                    service, entrada.file_id, destino, check_permissions=False
-                )
+            gravado = _baixar_uma_vez(service, entrada, destino)
             _ajustar_mtime(gravado, entrada.modified_time)
             return gravado
         except TransientDriveError:
@@ -435,6 +682,123 @@ def classificar_remocao(service, drive_id: str) -> str:
     return REMOCAO_REMOVIDO
 
 
+def _mime_do_drive(service, drive_id: str) -> str:
+    """Consulta o mimeType de um arquivo no Drive pelo ID."""
+    meta = (
+        service.files()
+        .get(fileId=drive_id, fields="id,mimeType", supportsAllDrives=True)
+        .execute()
+    )
+    return meta.get("mimeType", "")
+
+
+def _candidatos_a_reconstruir(
+    destino_raiz: Path, pasta_logs: Path
+) -> dict[str, tuple[str, Path]]:
+    """Descobre os PDFs que vieram de nativos e podem virar ``.reconstruido``.
+
+    Duas fontes, unidas por ``drive_id``:
+
+    1. o log de falhas (categoria ``grande_demais``) — o registro explícito do
+       estouro do export;
+    2. o manifesto — para pegar os arquivos baixados **antes** desta função
+       existir. Como os uploads guardam a extensão no nome do Drive e os nativos
+       não, um arquivo local ``.pdf`` cujo ``nome`` no Drive não termina em
+       ``.pdf`` é um nativo exportado, não um PDF enviado. Isso evita uma
+       consulta de tipo para cada PDF da conta.
+
+    Devolve ``drive_id -> (nome, caminho_do_pdf)``.
+    """
+    extensao_pdf = EXTENSAO_EXPORT.get(FORMATO_FALLBACK, ".pdf")
+
+    do_log: set[str] = set()
+    for linha in falhas_mod.ler(pasta_logs):
+        if linha.get("categoria") == falhas_mod.CAT_GRANDE and linha.get("drive_id"):
+            do_log.add(linha["drive_id"])
+
+    candidatos: dict[str, tuple[str, Path]] = {}
+    for caminho, registro in manifest_mod.carregar(destino_raiz).items():
+        if not caminho.lower().endswith(extensao_pdf):
+            continue
+        nome = registro.nome or ""
+        veio_de_nativo = not nome.lower().endswith(extensao_pdf)
+        if registro.drive_id in do_log or veio_de_nativo:
+            candidatos[registro.drive_id] = (nome, destino_raiz / caminho)
+    return candidatos
+
+
+def reconstruir_pendentes(
+    service, config: Config, destino_raiz: Path
+) -> tuple[int, int]:
+    """Recupera os originais grandes já baixados como PDF.
+
+    Os arquivos já baixados ficam "inalterados" nas execuções seguintes, então a
+    recuperação automática (que só roda no download) não os alcança. Este comando
+    varre o manifesto e o log em busca dos PDFs que vieram de nativos e, para
+    cada um, tenta nesta ordem:
+
+    1. o **original verdadeiro** via ``files.download`` (operação longa, sem o
+       limite de 10 MB e sem precisar das APIs nativas) — gravado com o nome
+       normal (ex.: ``Proposta de consultoria.pptx``);
+    2. a **reconstrução** editável pela API nativa (``.reconstruido``), útil
+       antes desta função existir;
+    3. o ``.md`` de um Google Docs, pela Drive API.
+
+    Devolve ``(recuperados, falhas)``.
+    """
+    pasta_logs = config.logs.pasta(destino_raiz)
+    candidatos = _candidatos_a_reconstruir(destino_raiz, pasta_logs)
+
+    reconstruidos = 0
+    falhas = 0
+    for drive_id, (nome, pdf) in candidatos.items():
+        try:
+            mime = _mime_do_drive(service, drive_id)
+        except (DriveError, OSError) as error:
+            falhas += 1
+            print(f"  {nome}: tipo indisponível ({describe_error(error)})")
+            continue
+
+        # 1) O ideal: o próprio original editável, sem o limite de 10 MB.
+        formato = EXPORTABLE.get(mime)
+        if formato:
+            base = _sem_extensao_export(pdf, FORMATO_FALLBACK)
+            alvo = _destino_export(base, formato)
+            if alvo.exists():
+                continue
+            try:
+                caminho = download_document_async(service, drive_id, alvo, formato)
+            except (DriveError, OSError) as error:
+                print(
+                    f"  {nome}: original direto indisponível "
+                    f"({describe_error(error)})"
+                )
+            else:
+                reconstruidos += 1
+                print(f"  original salvo {caminho.name}")
+                continue
+
+        if not reconstruir_mod.tem_reconstrutor(mime):
+            continue
+
+        alvo = _destino_reconstruido(pdf, FORMATO_FALLBACK, mime)
+        if alvo is None:
+            continue
+        try:
+            caminho = reconstruir_mod.reconstruir(mime, drive_id, alvo)
+        except Exception as error:  # noqa: BLE001 - a API nativa pode estar off
+            # Um Doc ainda pode virar .md pelo export do Drive.
+            caminho = _exportar_texto(service, mime, drive_id, pdf, FORMATO_FALLBACK)
+            if caminho is None:
+                falhas += 1
+                print(f"  {nome}: falhou ({describe_error(error)})")
+                continue
+        reconstruidos += 1
+        print(f"  reconstruído {caminho.name}")
+
+    return reconstruidos, falhas
+
+
 def executar_backup(
     service,
     config: Config,
@@ -481,6 +845,10 @@ def executar_backup(
             ids_vistos.add(entrada.file_id)
             stats.total += 1
             destino = destino_raiz.joinpath(*entrada.pastas, entrada.name)
+            # Documentos do Workspace ganham a extensão do formato exportado, que
+            # o nome no Drive não traz. Aplicado aqui para que a checagem de
+            # "inalterado" e o desvio de colisão já olhem o caminho final.
+            destino = _destino_export(destino, EXPORTABLE.get(entrada.mime_type))
             anterior = caminho_por_id.get(entrada.file_id)
             existente = _destino_existente(
                 destino_raiz / anterior if anterior else destino, entrada
@@ -490,22 +858,6 @@ def executar_backup(
                 stats.ignorados += 1
                 if verbose:
                     print(f"  inalterado  {entrada.name}")
-                continue
-
-            # Arquivos que só podem ser baixados por operação de longa duração
-            # (files.download) não são tentados: ficam registrados no log.
-            motivo_lro = exige_operacao_longa(entrada)
-            if motivo_lro:
-                stats.requer_lro += 1
-                stats.falhas_registro.append(
-                    Falha(
-                        nome=entrada.name,
-                        categoria=falhas_mod.CAT_OPERACAO_LONGA,
-                        detalhe=motivo_lro,
-                        drive_id=entrada.file_id,
-                    )
-                )
-                print(f"  requer LRO   {entrada.name}")
                 continue
 
             if dry_run:
@@ -522,17 +874,43 @@ def executar_backup(
                 gravado = _baixar_com_retry(
                     service, entrada, destino, config.retry.attempts
                 )
+                caminho_novo = str(gravado.relative_to(destino_raiz))
                 manifest_mod.registrar(
                     registros,
-                    str(gravado.relative_to(destino_raiz)),
+                    caminho_novo,
                     entrada.file_id,
                     entrada.name,
                     gravado.stat().st_size,
                     entrada.modified_time,
                 )
+                # Se o arquivo mudou de nome/caminho (renome no Drive ou a
+                # extensão que passamos a acrescentar), descarta a entrada
+                # antiga para não deixar duas apontando para o mesmo ID.
+                if anterior and anterior != caminho_novo:
+                    registros.pop(anterior, None)
                 stats.baixados += 1
                 stats.bytes_novos += gravado.stat().st_size
+                # Tipos sem export (ex.: Google Vids) só saem por operação longa.
+                if entrada.mime_type in LRO_SOMENTE:
+                    stats.requer_lro += 1
                 print(f"\r  ok           {entrada.name}  ", flush=True)
+
+                # Nativo grande demais para exportar: ficou em PDF. Registra
+                # para `--listar-grandes`, sem contar como falha (o backup
+                # cumpriu o essencial: guardou o conteúdo).
+                if _excedeu_export(entrada, gravado):
+                    stats.originais_pendentes += 1
+                    stats.falhas_registro.append(
+                        Falha(
+                            nome=entrada.name,
+                            categoria=falhas_mod.CAT_GRANDE,
+                            detalhe=(
+                                "grande demais para exportar; guardado em PDF "
+                                "(original editável pela web)"
+                            ),
+                            drive_id=entrada.file_id,
+                        )
+                    )
             except (DownloadRestrictedError, DriveError, OSError, ValueError) as error:
                 stats.falhas += 1
                 categoria, detalhe = falhas_mod.categorizar(error)

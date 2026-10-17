@@ -6,6 +6,7 @@ from pathlib import Path
 from agebackup import falhas as falhas_mod
 from agebackup.drive import (
     DownloadRestrictedError,
+    ExportTooLargeError,
     FileNotFoundInDriveError,
     TransientDriveError,
 )
@@ -121,6 +122,13 @@ def test_categorizar_temporaria():
 
 def test_categorizar_erro_local():
     assert categorizar(OSError("disco cheio"))[0] == falhas_mod.CAT_LOCAL
+
+
+def test_categorizar_grande_demais():
+    categoria, detalhe = categorizar(ExportTooLargeError("não coube"))
+
+    assert categoria == falhas_mod.CAT_GRANDE
+    assert "grande" in detalhe
 
 
 def test_categorizar_valor_invalido():

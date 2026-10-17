@@ -161,6 +161,8 @@ Saída típica:
 | `--dry-run` | Só lista, não grava nada |
 | `--verbose` / `-v` | Mostra também os arquivos inalterados |
 | `--falhas` | Mostra as últimas falhas registradas |
+| `--listar-grandes` | Lista os grandes que ainda estão só em PDF (esconde os já recuperados) |
+| `--reconstruir-grandes` | Baixa o original/editável dos grandes já salvos em PDF |
 | `--logs` | Lista os logs e os arquivos comprimidos |
 | `--help` | Não implementado; use as opções acima |
 
@@ -303,43 +305,137 @@ categoria da falha:
 
 | Categoria | Significado | O que fazer |
 | --- | --- | --- |
-| `operacao_longa` | Só baixa via `files.download` (LRO) | Ainda não suportado |
+| `operacao_longa` | Tipo que só o `files.download` (LRO) entrega (ex.: Google Vids) e cujo download falhou | Repita; se persistir, baixe pela web |
+| `grande_demais` | Passou de 10 MB e nem o `files.download`, nem o PDF, nem o editável deram certo | Baixe o original pela web |
 | `bloqueado` | O dono restringiu o download | Nada a fazer |
 | `permissao` | Sem permissão de leitura | Verifique a conta |
 | `inexistente` | Sumiu do Drive durante o backup | Normal |
 | `cota_excedida` | Limite de requisições da API | Espere ou peça mais cota |
-| `temporaria` | Erro 429/500/503 | Repita; já tentou 3x sozinho |
+| `temporaria` | Erro 429/500/503 ou queda de rede | Repita; já tentou 3x sozinho |
 | `erro_local` | Disco cheio, permissão de pasta | Verifique o destino |
 | `erro_api` | Outro erro da API | Veja o detalhe no log |
 | `listagem` | A listagem do Drive parou no meio | Repita o backup |
 
-### Arquivos que exigem operação de longa duração
+### Documentos do Google
 
-Alguns arquivos **não podem ser baixados** pelo método normal. São detectados
-antes de qualquer requisição e registrados com a categoria `operacao_longa`:
+Arquivos nativos do Google (Docs, Sheets, Slides, Desenhos) são exportados para um
+formato comum e ganham a extensão no nome:
 
-| Caso | Por quê |
+| Tipo no Drive | Exportado como |
 | --- | --- |
-| **Google Vids** (`application/vnd.google-apps.video`) | A API responde `fileNotExportable`: *"Google Vids does not support files.export. Use files.download"* |
-| **Documentos do Workspace acima de 10 MB** | O `files.export` tem limite de 10 MB |
+| Documento | `.docx` |
+| Planilha | `.xlsx` |
+| Apresentação | `.pptx` |
+| Desenho | `.pdf` |
+| Vídeo (Google Vids) | `.mp4` (via `files.download`, não `files.export`) |
 
-A alternativa seria `files.download`, uma **operação de longa duração** (LRO):
-um POST que devolve um ID, depois polling até ficar pronto, e só então o
-download pela URL de conteúdo. O agebackup **ainda não executa LRO**, então esses
-arquivos ficam apenas registrados.
+O `files.export` tem **limite de 10 MB por requisição**. Quando o formato
+principal não cabe (comum em apresentações cheias de imagens), o AgeBackup
+recorre ao `files.download` — uma **operação de longa duração** que monta o
+arquivo no servidor e devolve uma URL, **sem esse limite**. O resultado é o
+**próprio original editável**, com o nome normal:
 
 ```
-  requer LRO   gravacao-da-reuniao.mp4
+  baixando     Proposta de consultoria...
+    download direto indisponível (HTTP 403 (fileNotExportable))
+    export grande demais, repetindo em Proposta de consultoria.pdf
+    reconstruído Proposta de consultoria.reconstruido.pptx
+  ok           Proposta de consultoria
+```
+
+No caso comum, o `files.download` funciona e você recebe o `.pptx` (ou `.docx`,
+`.xlsx`) fiel — **sem** precisar habilitar as APIs nativas e **sem** PDF:
+
+```
+  baixando     Proposta de consultoria...
+    original salvo Proposta de consultoria.pptx
+  ok           Proposta de consultoria
+```
+
+Só se o `files.download` falhar o AgeBackup cai para o **PDF** (que comprime as
+mídias) e, se a API nativa (Slides, Docs ou Sheets) estiver habilitada, ainda
+**reconstrói o formato editável** como um arquivo extra `.reconstruido`:
+
+```
+    export grande demais, repetindo em Proposta de consultoria.pdf
+    reconstruído Proposta de consultoria.reconstruido.pptx
+```
+
+A reconstrução preserva o conteúdo (texto, imagens, tabelas, células e
+fórmulas), mas **não** o tema, as transições, as animações nem a mídia embutida
+(vídeo) — por isso o arquivo tem o sufixo `.reconstruido`, para nunca se passar
+por um export fiel. Já o arquivo vindo do `files.download` é um export fiel e
+leva o nome normal.
+
+Um **Google Docs** grande ganha um caso a mais: mesmo com a Docs API
+desabilitada, ele é salvo como `Nome.reconstruido.md` pelo export de texto do
+Drive (`text/markdown`) — pequeno, editável e sem depender da API nativa.
+
+Planilhas gigantes são lidas em blocos (`'Aba'!A1:Z5000`, `'Aba'!A5001:Z10000`,
+...) para não estourar o tamanho da resposta nem a memória.
+
+O conteúdo visível fica **sempre** garantido: no original editável quando o
+`files.download` funciona, ou no PDF como reserva. Se o PDF for usado e a API
+nativa estiver desabilitada ou a reconstrução falhar, o PDF é mantido e o backup
+segue normal (sem contar como falha). E se nem o PDF couber, o próprio editável
+reconstruído (ou o `.md` de um Doc) é usado como o arquivo salvo, para o backup
+não ficar vazio.
+
+Para ver o que ainda ficou em PDF e o link do original (o comando esconde os
+arquivos cujo original já foi recuperado):
+
+```sh
+uv run agebackup-backup --listar-grandes
+
+#   Originais grandes (baixar pela web)
+#   Log: /home/isaac/agebackup/logs/.agebackup-falhas.log
+#
+#   Proposta de consultoria
+#       https://drive.google.com/file/d/<id>/view
+#
+#   1 arquivo(s). Abra o link e use Arquivo > Fazer download.
+```
+
+Se um arquivo já tiver sido salvo em PDF (ele fica "inalterado" e não seria
+rebaixado sozinho), recupere o original com:
+
+```sh
+uv run agebackup-backup --reconstruir-grandes
+```
+
+Esse comando tenta, para cada pendente, o **original verdadeiro** via
+`files.download` (gravado com o nome normal, ex.: `Proposta de consultoria.pptx`)
+e, se não der, a **reconstrução** editável (`.reconstruido`). O PDF antigo é
+mantido; apague-o quando quiser.
+
+Só se nem o `files.download`, nem o PDF, nem o editável derem certo é que o
+arquivo entra no log como `grande_demais` **sem** nada salvo — e continua intacto
+no Drive.
+
+### Google Vids (operação de longa duração)
+
+O **Google Vids** (`application/vnd.google-apps.video`) não aceita `files.export`
+— a API responde `fileNotExportable`: *"Google Vids does not support files.export.
+Use files.download"*. O único caminho é o `files.download`, uma **operação de
+longa duração** (LRO): um POST que devolve uma operação e, quando pronta, a URL do
+conteúdo. O AgeBackup o baixa assim, como **MP4** (nome normal, sem sufixo):
+
+```
+  baixando     gravacao-da-reuniao...
+  ok           gravacao-da-reuniao
 
   Resumo
-  128 arquivos, 96 baixados, 30 inalterados, 2 exigem operação longa
+  128 arquivos, 97 baixados, 30 inalterados, 1 por operação longa
 ```
 
-Eles **não contam como falha temporária** — repetir não mudaria o resultado.
-Mas o comando retorna código de saída 1, porque houve arquivo que não foi
-copiado.
+O mesmo `files.download` é usado para os documentos do Workspace que estouram os
+10 MB — ali ele traz o próprio original editável e ainda tem o PDF como reserva.
+Para o Vids **não** há export alternativo: se o `files.download` falhar (mesmo
+após as repetições automáticas), o arquivo é registrado como falha, com a
+categoria do erro da API, e o backup continua. Uma queda de rede no meio costuma
+resolver na repetição.
 
-Ver todos os arquivos pendentes:
+Ver todos os arquivos que falharam por exigir operação longa:
 
 ```sh
 awk -F'\t' '$3=="operacao_longa" {print $2}' ~/agebackup/logs/.agebackup-falhas.log
@@ -493,7 +589,11 @@ tail -20 ~/agebackup-backup.log
 **Faz:**
 
 - Baixa arquivos binários (PDF, imagens, vídeo, planilha exportada)
-- Exporta Google Docs, Sheets e Slides para PDF
+- Exporta Google Docs para `.docx`, Sheets para `.xlsx`, Slides para `.pptx`
+  (e, quando o formato principal passa de 10 MB, usa o `files.download` para
+  trazer o próprio original editável; se falhar, cai para `.pdf` e reconstrói o
+  formato editável como `.reconstruido` quando a API nativa está habilitada;
+  Docs grandes também saem como `.md` pelo export do Drive)
 - Ignora arquivos na lixeira
 - Pula arquivos inalterados
 - Grava de forma atômica: escreve num `.tmp` e renomeia no fim, para nunca
@@ -507,8 +607,6 @@ tail -20 ~/agebackup-backup.log
 
 - **Não sincroniza de volta** — é somente leitura
 - **Não apaga** arquivos locais: apenas registra a remoção no log
-- **Não executa operações de longa duração** — Google Vids e documentos do
-  Workspace acima de 10 MB ficam registrados como `operacao_longa`
 - **Não baixa versões anteriores** de arquivos
 - **Não agenda sozinho** — use cron
 
@@ -557,6 +655,38 @@ aviso para qualquer app próprio fora da lista de verificados.
 A pasta local já tem um arquivo com esse nome. O agebackup não sobrescreve: cria um
 novo com sufixo.
 
+### "download direto indisponível" ou "original editável indisponível"
+
+Um arquivo nativo do Google (Slides, Docs, Sheets) passou de 10 MB. O AgeBackup
+tenta primeiro o **original verdadeiro** via `files.download` (operação de longa
+duração, sem o limite de 10 MB e sem precisar de API nativa). Se aparecer
+"download direto indisponível", essa etapa falhou (rede, cota ou permissão) e ele
+seguiu para o PDF; se aparecer "original editável indisponível", o PDF foi salvo
+e a **reconstrução** pela API nativa também não funcionou (API desabilitada ou
+sem permissão).
+
+O conteúdo está garantido no PDF. Para tentar de novo o original verdadeiro e,
+se preciso, a reconstrução, rode:
+
+```sh
+uv run agebackup-backup --reconstruir-grandes
+```
+
+Se ainda faltar o `.reconstruido`, habilite a API nativa no mesmo projeto Google
+das credenciais:
+
+| Tipo | API a habilitar |
+| --- | --- |
+| Apresentações | [Slides API](https://console.cloud.google.com/apis/library/slides.googleapis.com) |
+| Documentos | [Docs API](https://console.cloud.google.com/apis/library/docs.googleapis.com) |
+| Planilhas | [Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com) |
+
+Um **Google Docs** não fica sem editável: mesmo sem a Docs API, ele sai como
+`Nome.reconstruido.md` (export de texto do Drive).
+
+Alternativa sempre disponível: `uv run agebackup-backup --listar-grandes` mostra
+o link para baixar o original pela web (Arquivo → Fazer download).
+
 ### Download bloqueado
 
 Alguns arquivos têm download restringido pelo dono (`capabilities.canDownload`
@@ -565,7 +695,9 @@ Alguns arquivos têm download restringido pelo dono (`capabilities.canDownload`
 ### Falhas temporárias
 
 Erros 429/500/503 são repetidos automaticamente até 3 vezes, com espera
-crescente.
+crescente. O mesmo vale para **quedas de rede no meio do download** (conexão
+reiniciada, *broken pipe*, timeout, corpo incompleto): são tratadas como
+temporárias e repetidas, em vez de virarem `erro_local`.
 
 ### `build-essential` ausente
 
@@ -592,6 +724,8 @@ uv run agebackup-setup --reset    # apagar configuração
 uv run agebackup-backup --dry-run # simular
 uv run agebackup-backup           # executar
 uv run agebackup-backup --falhas  # ver falhas registradas
+uv run agebackup-backup --listar-grandes  # originais grandes guardados em PDF
+uv run agebackup-backup --reconstruir-grandes  # baixa o original dos pendentes
 uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
 ```
 
@@ -606,9 +740,10 @@ uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── falhas.py      # log de falhas
 │   ├── manifest.py    # manifesto e log de remoções
+│   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação mensal e retenção dos logs
 │   └── setup.py       # tela de configuração
-├── tests/             # 248 testes
+├── tests/             # 323 testes
 └── .opencode/skills/  # documentação de referência
 ```
 

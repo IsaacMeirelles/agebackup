@@ -17,7 +17,20 @@ automaticamente e os logs giram mensalmente com retenção configurável.
 - **Nunca sobrescreve** — conflitos de nome ganham sufixo numérico; nada
   existente é substituído.
 - **Exportação de documentos Google** — Docs → `.docx`, Planilhas → `.xlsx`,
-  Apresentações → `.pptx`, Desenhos → `.pdf`.
+  Apresentações → `.pptx`, Desenhos → `.pdf`. Documentos que passam do limite de
+  10 MB por exportação são obtidos pelo `files.download` (operação de longa
+  duração), que **não tem esse limite** nem precisa das APIs nativas: o próprio
+  original editável é salvo. O mesmo método entrega os **Google Vids** (que
+  recusam `files.export`) como `.mp4`. Só se o `files.download` falhar o AgeBackup
+  cai para `.pdf` (que comprime as mídias) e, se a API nativa estiver habilitada,
+  para a reconstrução editável `.reconstruido` (um Google Docs grande ainda ganha
+  um `.reconstruido.md`, export de texto do Drive). O link para baixar o original
+  pela web fica em `agebackup-backup --listar-grandes`, e os pendentes já salvos
+  em PDF são recuperados com `agebackup-backup --reconstruir-grandes`.
+- **Arquivos grandes (acima de 10 MB)** — só os documentos *nativos* do Google
+  têm o limite de exportação; arquivos enviados (`.md`, `.txt`, `.xlsx`, PDFs,
+  imagens, vídeos, de qualquer tamanho) são baixados em blocos, direto para o
+  disco, sem esse limite. Para os nativos, o `files.download` dispensa o teto.
 - **Retry configurável** — repetição automática de falhas temporárias de
   transferência (1 a 10 tentativas, padrão 3).
 - **Logs com rotação mensal** — falhas e remoções registrados em
@@ -82,7 +95,7 @@ destino/
 ## Desenvolvimento
 
 ```bash
-uv run python -m pytest   # 248 testes (nenhum chama a API real)
+uv run python -m pytest   # 323 testes (nenhum chama a API real)
 uv run black .            # formatação
 uv run ruff check .       # lint
 ```

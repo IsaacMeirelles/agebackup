@@ -6,11 +6,22 @@ import sys
 from pathlib import Path
 
 from agebackup import falhas as falhas_mod
-from agebackup.backup import carregar_configuracao, executar_backup
-from agebackup.config import ConfigError
+from agebackup.backup import (
+    carregar_configuracao,
+    executar_backup,
+    pendentes_de_original,
+    reconstruir_pendentes,
+)
+from agebackup.config import Config, ConfigError
 from agebackup.drive import DriveError, get_service
 
 LIMITE_ERROS_MOSTRADOS = 10
+LIMITE_GRANDES_MOSTRADOS = 20
+
+
+def _link_original(drive_id: str) -> str:
+    """Link do arquivo no Drive, para baixar o original pela web."""
+    return f"https://drive.google.com/file/d/{drive_id}/view"
 
 
 def _titulo(texto: str) -> None:
@@ -18,18 +29,83 @@ def _titulo(texto: str) -> None:
 
 
 def mostrar_erros(falhas: list) -> None:
-    """Lista as falhas da execução, limitando a quantidade exibida."""
-    if not falhas:
+    """Lista as falhas da execução, limitando a quantidade exibida.
+
+    Os arquivos grandes demais para exportar não entram aqui: eles foram salvos
+    em PDF e são listados à parte por `mostrar_pendentes`.
+    """
+    reais = [falha for falha in falhas if falha.categoria != falhas_mod.CAT_GRANDE]
+    if not reais:
         return
 
-    print(f"\n  Falhas ({len(falhas)}):")
-    for falha in falhas[:LIMITE_ERROS_MOSTRADOS]:
+    print(f"\n  Falhas ({len(reais)}):")
+    for falha in reais[:LIMITE_ERROS_MOSTRADOS]:
         print(f"    - {falha.nome}: {falha.categoria}")
         if falha.detalhe:
             print(f"        {falha.detalhe.splitlines()[0][:66]}")
 
-    if len(falhas) > LIMITE_ERROS_MOSTRADOS:
-        print(f"    ... e mais {len(falhas) - LIMITE_ERROS_MOSTRADOS} (veja o log).")
+    if len(reais) > LIMITE_ERROS_MOSTRADOS:
+        print(f"    ... e mais {len(reais) - LIMITE_ERROS_MOSTRADOS} (veja o log).")
+
+
+def mostrar_pendentes(falhas: list) -> None:
+    """Lista os nativos grandes que ficaram em PDF, com o link do original."""
+    grandes = [falha for falha in falhas if falha.categoria == falhas_mod.CAT_GRANDE]
+    if not grandes:
+        return
+
+    print(f"\n  Originais grandes, guardados em PDF ({len(grandes)}):")
+    for falha in grandes[:LIMITE_GRANDES_MOSTRADOS]:
+        print(f"    - {falha.nome}")
+        if falha.drive_id:
+            print(f"        {_link_original(falha.drive_id)}")
+    if len(grandes) > LIMITE_GRANDES_MOSTRADOS:
+        print(f"    ... e mais {len(grandes) - LIMITE_GRANDES_MOSTRADOS}.")
+
+    print(
+        "\n  O conteúdo está no PDF. Para o original editável, abra o link e use\n"
+        "  Arquivo > Fazer download. A lista também está em: agebackup-backup --listar-grandes"
+    )
+
+
+def listar_grandes(config: Config, destino_raiz: Path) -> None:
+    """Lista os nativos grandes ainda pendentes de download manual.
+
+    O log é histórico: um arquivo cujo original/editável já foi recuperado
+    (``files.download`` ou reconstrução) deixa de aparecer aqui.
+    """
+    pasta_logs = config.logs.pasta(destino_raiz)
+    todas = falhas_mod.ler(pasta_logs)
+    grandes = [
+        linha for linha in todas if linha.get("categoria") == falhas_mod.CAT_GRANDE
+    ]
+    pendentes = pendentes_de_original(destino_raiz, pasta_logs)
+
+    _titulo("Originais grandes (baixar pela web)")
+    print(f"  Log: {falhas_mod.caminho_log(pasta_logs)}")
+
+    if not grandes:
+        print("\n  Nenhum arquivo pendente.")
+        return
+
+    vistos: set[str] = set()
+    for linha in grandes:
+        drive_id = linha.get("drive_id", "")
+        if drive_id and drive_id not in pendentes:
+            continue
+        chave = drive_id or linha.get("nome", "")
+        if chave in vistos:
+            continue
+        vistos.add(chave)
+        print(f"\n  {linha.get('nome', '?')}")
+        if drive_id:
+            print(f"      {_link_original(drive_id)}")
+
+    if not vistos:
+        print("\n  Nenhum arquivo pendente (os originais já foram recuperados).")
+        return
+
+    print(f"\n  {len(vistos)} arquivo(s). Abra o link e use Arquivo > Fazer download.")
 
 
 def mostrar_falhas(pasta_logs: Path) -> None:
@@ -100,10 +176,46 @@ def _ajuda() -> int:
         "    --dry-run      Simula, sem gravar nada\n"
         "    -v, --verbose  Mostra o progresso detalhado\n"
         "    --falhas       Mostra o log de falhas\n"
+        "    --listar-grandes  Lista os arquivos grandes que ficaram em PDF\n"
+        "    --reconstruir-grandes  Baixa o original/editavel dos grandes ja em PDF\n"
         "    --logs         Mostra os logs e a politica de rotacao\n"
         "    -h, --help     Mostra esta ajuda"
     )
     return 0
+
+
+def _reconstruir_grandes() -> int:
+    """Recupera o original/editável dos grandes já baixados como PDF."""
+    try:
+        config = carregar_configuracao()
+    except ConfigError as error:
+        print(f"  {error}", file=sys.stderr)
+        return 1
+
+    destino = Path(config.backup.destination).expanduser()
+
+    try:
+        service = get_service()
+    except DriveError as error:
+        print(f"  {error}", file=sys.stderr)
+        return 1
+
+    _titulo("Recuperar originais grandes")
+    print(f"  Destino: {destino}")
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    if reconstruidos == 0 and falhas == 0:
+        print("\n  Nada a recuperar. Veja a lista com: --listar-grandes")
+        return 0
+
+    print(f"\n  {reconstruidos} recuperado(s), {falhas} falha(s).")
+    if falhas:
+        print(
+            "  Pode ser queda de rede ou API indisponivel; repita o comando.\n"
+            "  Sem o original, baixe pela web com: --listar-grandes"
+        )
+    return 1 if falhas else 0
 
 
 def main() -> int:
@@ -123,6 +235,18 @@ def main() -> int:
             return 1
         mostrar_falhas(config.logs.pasta(Path(config.backup.destination).expanduser()))
         return 0
+
+    if "--listar-grandes" in args:
+        try:
+            config = carregar_configuracao()
+        except ConfigError as error:
+            print(f"  {error}", file=sys.stderr)
+            return 1
+        listar_grandes(config, Path(config.backup.destination).expanduser())
+        return 0
+
+    if "--reconstruir-grandes" in args:
+        return _reconstruir_grandes()
 
     if "--logs" in args:
         mostrar_logs()
@@ -175,11 +299,12 @@ def main() -> int:
     print(f"  {stats.resumo()}")
 
     mostrar_erros(stats.falhas_registro)
+    mostrar_pendentes(stats.falhas_registro)
 
     if dry_run:
         print("\n  Simulacao: nenhum arquivo foi gravado.")
 
-    return 1 if stats.falhas or stats.requer_lro else 0
+    return 1 if stats.falhas else 0
 
 
 if __name__ == "__main__":

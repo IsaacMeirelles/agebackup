@@ -16,6 +16,22 @@ ADC_FILE = Path.home() / ".config" / "gcloud" / "application_default_credentials
 # Somente leitura: suficiente para backup e com menos burocracia de verificação.
 READONLY_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
 
+# Escopos das APIs nativas (Slides, Docs, Sheets), usados só para reconstruir
+# o formato editável dos arquivos grandes demais para o files.export (limite de
+# 10 MB por requisição). São pedidos à parte, porque exigem cada API habilitada
+# no projeto do Google.
+PRESENTATIONS_READONLY_SCOPE = "https://www.googleapis.com/auth/presentations.readonly"
+DOCUMENTS_READONLY_SCOPE = "https://www.googleapis.com/auth/documents.readonly"
+SPREADSHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly"
+
+# Todos os escopos de reconstrução, na ordem em que os pedimos. O Drive é
+# pedido junto porque a autenticação só é válida para os escopos concedidos.
+SCOPES_RECONSTRUCAO = (
+    PRESENTATIONS_READONLY_SCOPE,
+    DOCUMENTS_READONLY_SCOPE,
+    SPREADSHEETS_READONLY_SCOPE,
+)
+
 # Versões recentes do gcloud recusam emitir credenciais ADC apenas com escopos
 # restritos (como o do Drive): exigem também o cloud-platform. Pedimos os dois.
 CLOUD_PLATFORM_SCOPE = "https://www.googleapis.com/auth/cloud-platform"

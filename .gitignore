@@ -21,9 +21,14 @@ config.json
 
 # Credenciais e ambiente local
 gitcred
-.opencode/
 .~lock.*
 *.log
+
+# Ferramentas locais do agente; publica-se apenas a skill genérica da Drive API
+.opencode/*
+!.opencode/skills/
+.opencode/skills/*
+!.opencode/skills/google-drive-api/
 
 # Chaves e credenciais (Service Account, OAuth)
 bkpenvio.json

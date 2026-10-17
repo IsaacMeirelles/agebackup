@@ -14,6 +14,8 @@ import pytest
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
+from agebackup import falhas as falhas_mod
+from agebackup import reconstruir as reconstruir_mod
 from agebackup.backup import (
     EXPORTABLE,
     FileEntry,
@@ -25,7 +27,7 @@ from agebackup.backup import (
     listar_arquivos,
 )
 from agebackup.config import AccountConfig, BackupConfig, Config
-from agebackup.drive import DownloadRestrictedError, TransientDriveError
+from agebackup.drive import DownloadRestrictedError, DriveError, TransientDriveError
 
 CONTEUDO = b"conteudo do backup"
 
@@ -43,6 +45,8 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
     paginar: ClassVar[int] = 0
     falhar_com: int | None = None
     sumidos: ClassVar[set[str]] = set()
+    # mimeTypes de export que respondem 403 exportSizeLimitExceeded (grande demais).
+    exportar_grande: ClassVar[set[str]] = set()
 
     @classmethod
     def arquivos_page(cls, pagina_atual: int = 0) -> dict:
@@ -68,6 +72,29 @@ class _FakeDrive(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self) -> None:  # nome exigido pelo BaseHTTPRequestHandler
+        if "alt=media" in self.path:
+            # Export de documento do Workspace: simula o limite de 10 MB quando o
+            # mimeType pedido está marcado, para exercitar o fallback para PDF.
+            consulta = urllib.parse.unquote_plus(self.path.split("?", 1)[-1])
+            mime = urllib.parse.parse_qs(consulta).get("mimeType", [""])[0]
+            if mime and mime in self.exportar_grande:
+                self._json(
+                    {
+                        "error": {
+                            "code": 403,
+                            "message": "This file is too large to be exported.",
+                            "errors": [
+                                {
+                                    "reason": "exportSizeLimitExceeded",
+                                    "message": "This file is too large to be exported.",
+                                }
+                            ],
+                        }
+                    },
+                    403,
+                )
+                return
+
         if self.falhar_com and "alt=media" in self.path:
             motivo = "rateLimitExceeded" if self.falhar_com == 429 else "notFound"
             self._json(
@@ -132,6 +159,7 @@ def service():
     _FakeDrive.paginar = 0
     _FakeDrive.falhar_com = None
     _FakeDrive.sumidos = set()
+    _FakeDrive.exportar_grande = set()
 
     srv = http.server.HTTPServer(("127.0.0.1", 0), _FakeDrive)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
@@ -150,6 +178,25 @@ def config(tmp_path: Path) -> Config:
         account=AccountConfig(email="u@e.com"),
         backup=BackupConfig(destination=str(tmp_path / "backup")),
     )
+
+
+@pytest.fixture(autouse=True)
+def sem_reconstrucao(monkeypatch):
+    """Impede que os testes de backup chamem as APIs nativas de verdade.
+
+    Por padrão a reconstrução se comporta como API indisponível (falha silenciosa)
+    e o download assíncrono (`files.download`) também. Testes que querem exercitar
+    qualquer um dos dois substituem este patch.
+    """
+
+    def indisponivel(*args, **kwargs):
+        raise reconstruir_mod.ReconstrucaoIndisponivel("API nativa indisponível")
+
+    def sem_lro(*args, **kwargs):
+        raise DriveError("files.download indisponível no teste")
+
+    monkeypatch.setattr(reconstruir_mod, "reconstruir", indisponivel)
+    monkeypatch.setattr("agebackup.backup.download_document_async", sem_lro)
 
 
 def _arquivo(file_id: str = "F1", nome: str = "doc.txt", **extra) -> dict:
@@ -619,33 +666,49 @@ def test_logs_do_agebackup_nao_sao_tratados_como_removidos(service, config, tmp_
     assert stats.removidos_na_origem == 0
 
 
-def test_video_do_drive_e_registrado_como_lro(service, config, tmp_path):
+def test_video_do_vids_e_baixado_por_lro(service, config, tmp_path, monkeypatch):
+    """Google Vids não aceita files.export; é baixado como MP4 pelo files.download."""
     _FakeDrive.arquivos = [
         _arquivo("V1", "meu-video", mimeType="application/vnd.google-apps.video")
     ]
     destino = tmp_path / "backup"
+
+    def lro_falso(servico, file_id, alvo, mime_type):
+        assert file_id == "V1"
+        assert mime_type == "video/mp4"
+        assert alvo.name == "meu-video.mp4"
+        alvo.write_bytes(b"mp4")
+        return alvo
+
+    monkeypatch.setattr("agebackup.backup.download_document_async", lro_falso)
 
     stats = executar_backup(service, config, destino)
 
+    assert stats.falhas == 0
+    assert stats.baixados == 1
     assert stats.requer_lro == 1
-    assert stats.baixados == 0
-    texto = (destino / "logs" / ".agebackup-falhas.log").read_text(encoding="utf-8")
-    assert "operacao_longa" in texto
-    assert "meu-video" in texto
+    assert (destino / "meu-video.mp4").read_bytes() == b"mp4"
+    # Vids não tem export nem PDF de reserva.
+    assert not list(destino.glob("*.pdf"))
 
 
-def test_video_nao_e_baixado(service, config, tmp_path):
+def test_video_do_vids_falha_vira_falha_do_arquivo(service, config, tmp_path):
+    """Sem o files.download, o Vids é registrado como falha e o backup segue."""
     _FakeDrive.arquivos = [
         _arquivo("V1", "meu-video", mimeType="application/vnd.google-apps.video")
     ]
     destino = tmp_path / "backup"
+    # A fixture autouse `sem_reconstrucao` faz download_document_async falhar.
 
-    executar_backup(service, config, destino)
+    stats = executar_backup(service, config, destino)
 
-    assert not (destino / "meu-video").exists()
+    assert stats.baixados == 0
+    assert stats.falhas == 1
+    assert stats.requer_lro == 0
 
 
-def test_documento_acima_do_limite_e_registrado(service, config, tmp_path):
+def test_documento_acima_do_limite_cai_para_pdf(service, config, tmp_path):
+    """O formato principal estoura os 10 MB; o PDF costuma caber e é usado."""
     _FakeDrive.arquivos = [
         _arquivo(
             "D1",
@@ -654,14 +717,331 @@ def test_documento_acima_do_limite_e_registrado(service, config, tmp_path):
             size=str(15 * 1024 * 1024),
         )
     ]
+    _FakeDrive.exportar_grande = {EXPORTABLE["application/vnd.google-apps.spreadsheet"]}
     destino = tmp_path / "backup"
 
     stats = executar_backup(service, config, destino)
 
-    assert stats.requer_lro == 1
-    assert "operacao_longa" in (destino / "logs" / ".agebackup-falhas.log").read_text(
-        encoding="utf-8"
+    assert stats.requer_lro == 0
+    assert stats.baixados == 1
+    assert stats.originais_pendentes == 1
+    assert (destino / "planilha-grande.pdf").read_bytes() == CONTEUDO
+    assert not (destino / "planilha-grande.xlsx").exists()
+
+
+def test_documento_grande_reconstroi_original_editavel(
+    service, config, tmp_path, monkeypatch
+):
+    """Com a API nativa disponível, o original editável sai ao lado do PDF."""
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "P1",
+            "apresentacao-grande",
+            mimeType="application/vnd.google-apps.presentation",
+            size=str(15 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {
+        EXPORTABLE["application/vnd.google-apps.presentation"]
+    }
+    destino = tmp_path / "backup"
+
+    def reconstruir_falso(mime_type, file_id, alvo):
+        assert mime_type == "application/vnd.google-apps.presentation"
+        alvo.write_bytes(b"pptx reconstruido")
+        return alvo
+
+    monkeypatch.setattr(reconstruir_mod, "reconstruir", reconstruir_falso)
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.baixados == 1
+    assert stats.originais_pendentes == 1
+    assert (destino / "apresentacao-grande.pdf").read_bytes() == CONTEUDO
+    reconstruido = destino / "apresentacao-grande.reconstruido.pptx"
+    assert reconstruido.read_bytes() == b"pptx reconstruido"
+    # O sidecar não entra no manifesto: o PDF é quem representa o arquivo.
+    manifesto = (destino / ".agebackup-manifest.json").read_text(encoding="utf-8")
+    assert "reconstruido" not in manifesto
+
+
+def test_reconstrucao_indisponivel_mantem_pdf(service, config, tmp_path):
+    """Sem a Docs API, o PDF permanece e um .md editável sai ao lado."""
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "D1",
+            "documento-grande",
+            mimeType="application/vnd.google-apps.document",
+            size=str(15 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {EXPORTABLE["application/vnd.google-apps.document"]}
+    destino = tmp_path / "backup"
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.falhas == 0
+    assert stats.originais_pendentes == 1
+    assert (destino / "documento-grande.pdf").read_bytes() == CONTEUDO
+    assert not (destino / "documento-grande.reconstruido.docx").exists()
+    # O texto saiu como Markdown (export do Drive), que dispensa a Docs API.
+    assert (destino / "documento-grande.reconstruido.md").read_bytes() == CONTEUDO
+    texto = (destino / "logs" / ".agebackup-falhas.log").read_text(encoding="utf-8")
+    assert "grande_demais" in texto
+
+
+def test_nativo_grande_baixa_o_original_direto(service, config, tmp_path, monkeypatch):
+    """O files.download (LRO) traz o próprio original, sem o limite de 10 MB.
+
+    Melhor que o PDF: preserva o formato editável e não exige a API nativa.
+    """
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "P1",
+            "proposta",
+            mimeType="application/vnd.google-apps.presentation",
+            size=str(12 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {
+        EXPORTABLE["application/vnd.google-apps.presentation"]
+    }
+    destino = tmp_path / "backup"
+
+    def lro_falso(servico, file_id, alvo, mime_type):
+        assert file_id == "P1"
+        assert mime_type == EXPORTABLE["application/vnd.google-apps.presentation"]
+        alvo.write_bytes(b"pptx original")
+        return alvo
+
+    monkeypatch.setattr("agebackup.backup.download_document_async", lro_falso)
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.falhas == 0
+    assert stats.baixados == 1
+    assert stats.originais_pendentes == 0
+    assert (destino / "proposta.pptx").read_bytes() == b"pptx original"
+    assert not list(destino.glob("*.pdf"))
+
+
+def test_download_direto_transitorio_nao_vira_pdf(
+    service, config, tmp_path, monkeypatch
+):
+    """Falha temporária no files.download é repetida; não degrada para PDF."""
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "P1",
+            "proposta",
+            mimeType="application/vnd.google-apps.presentation",
+            size=str(12 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {
+        EXPORTABLE["application/vnd.google-apps.presentation"]
+    }
+    destino = tmp_path / "backup"
+    tentativas = {"n": 0}
+
+    def lro_transitorio(servico, file_id, alvo, mime_type):
+        tentativas["n"] += 1
+        raise TransientDriveError("429")
+
+    monkeypatch.setattr("agebackup.backup.download_document_async", lro_transitorio)
+    monkeypatch.setattr("agebackup.backup.time.sleep", lambda *a: None)
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.falhas == 1
+    assert tentativas["n"] == config.retry.attempts + 1
+    assert not list(destino.glob("*.pdf"))
+
+
+def test_overflow_e_idempotente_na_segunda_execucao(service, config, tmp_path):
+    """O PDF é rastreado no manifesto: a 2ª execução não rebaixa nem reconstrói."""
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "D1",
+            "planilha-grande",
+            mimeType="application/vnd.google-apps.spreadsheet",
+            size=str(15 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {EXPORTABLE["application/vnd.google-apps.spreadsheet"]}
+    destino = tmp_path / "backup"
+
+    primeira = executar_backup(service, config, destino)
+    segunda = executar_backup(service, config, destino)
+
+    assert primeira.baixados == 1
+    assert primeira.originais_pendentes == 1
+    assert segunda.ignorados == 1
+    assert segunda.baixados == 0
+    assert segunda.originais_pendentes == 0
+
+
+def test_documento_grande_demais_ate_para_pdf_e_registrado(service, config, tmp_path):
+    """Se nem o PDF couber, aí sim vira pendente, com categoria própria."""
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "D1",
+            "planilha-gigante",
+            mimeType="application/vnd.google-apps.spreadsheet",
+            size=str(15 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {
+        EXPORTABLE["application/vnd.google-apps.spreadsheet"],
+        "application/pdf",
+    }
+    destino = tmp_path / "backup"
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.falhas == 1
+    texto = (destino / "logs" / ".agebackup-falhas.log").read_text(encoding="utf-8")
+    assert "grande_demais" in texto
+
+
+def test_pdf_grande_demais_usa_o_editavel(service, config, tmp_path, monkeypatch):
+    """Se nem o PDF couber, o editável reconstruído vira o próprio arquivo.
+
+    Assim um nativo enorme não fica sem nenhuma cópia local.
+    """
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "P1",
+            "apresentacao-gigante",
+            mimeType="application/vnd.google-apps.presentation",
+            size=str(30 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {
+        EXPORTABLE["application/vnd.google-apps.presentation"],
+        "application/pdf",
+    }
+    destino = tmp_path / "backup"
+
+    def reconstruir_falso(mime_type, file_id, alvo):
+        alvo.write_bytes(b"pptx reconstruido")
+        return alvo
+
+    monkeypatch.setattr(reconstruir_mod, "reconstruir", reconstruir_falso)
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.falhas == 0
+    assert stats.baixados == 1
+    assert not list(destino.glob("*.pdf"))
+    editavel = destino / "apresentacao-gigante.reconstruido.pptx"
+    assert editavel.read_bytes() == b"pptx reconstruido"
+
+
+def test_documento_texto_grande_e_baixado_inteiro(service, config, tmp_path):
+    """Um .md/.txt enviado (>10MB) é blob: baixa inteiro, sem export nem PDF."""
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "M1",
+            "anotacoes.md",
+            mimeType="text/markdown",
+            size=str(20 * 1024 * 1024),
+        )
+    ]
+    destino = tmp_path / "backup"
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.baixados == 1
+    assert stats.originais_pendentes == 0
+    assert (destino / "anotacoes.md").read_bytes() == CONTEUDO
+    assert not list(destino.glob("*.pdf"))
+
+
+def test_baixar_com_retry_repete_erro_de_rede(monkeypatch, tmp_path):
+    """Uma queda de rede no download é repetida até dar certo."""
+    from agebackup.backup import FileEntry, _baixar_com_retry
+
+    entrada = FileEntry(
+        file_id="F1",
+        name="licao09.mp3",
+        mime_type="audio/mpeg",
+        size=10,
+        modified_time=_quando(),
     )
+    destino = tmp_path / "licao09.mp3"
+    tentativas = {"n": 0}
+
+    def uma_vez(service, entrada, destino):
+        tentativas["n"] += 1
+        if tentativas["n"] < 3:
+            raise TransientDriveError("Falha de rede no download")
+        destino.write_bytes(CONTEUDO)
+        return destino
+
+    monkeypatch.setattr("agebackup.backup._baixar_uma_vez", uma_vez)
+    monkeypatch.setattr("agebackup.backup.time.sleep", lambda *a: None)
+
+    gravado = _baixar_com_retry(None, entrada, destino, max_retries=5)
+
+    assert tentativas["n"] == 3
+    assert gravado.read_bytes() == CONTEUDO
+
+
+def test_baixar_com_retry_desiste_apos_o_limite(monkeypatch, tmp_path):
+    """Passado o limite de tentativas, a falha sobe para ser registrada."""
+    from agebackup.backup import FileEntry, _baixar_com_retry
+
+    entrada = FileEntry(
+        file_id="F1",
+        name="licao09.mp3",
+        mime_type="audio/mpeg",
+        size=10,
+        modified_time=_quando(),
+    )
+    tentativas = {"n": 0}
+
+    def sempre_falha(service, entrada, destino):
+        tentativas["n"] += 1
+        raise TransientDriveError("Falha de rede no download")
+
+    monkeypatch.setattr("agebackup.backup._baixar_uma_vez", sempre_falha)
+    monkeypatch.setattr("agebackup.backup.time.sleep", lambda *a: None)
+
+    with pytest.raises(TransientDriveError):
+        _baixar_com_retry(None, entrada, tmp_path / "licao09.mp3", max_retries=2)
+
+    assert tentativas["n"] == 3, "1 tentativa + 2 repetições"
+
+
+def test_export_recebe_extensao_do_formato(service, config, tmp_path):
+    _FakeDrive.arquivos = [
+        _arquivo("D1", "relatorio", mimeType="application/vnd.google-apps.document"),
+        _arquivo("S1", "planilha", mimeType="application/vnd.google-apps.spreadsheet"),
+        _arquivo("P1", "slides", mimeType="application/vnd.google-apps.presentation"),
+    ]
+    destino = tmp_path / "backup"
+
+    stats = executar_backup(service, config, destino)
+
+    assert stats.baixados == 3
+    assert (destino / "relatorio.docx").read_bytes() == CONTEUDO
+    assert (destino / "planilha.xlsx").read_bytes() == CONTEUDO
+    assert (destino / "slides.pptx").read_bytes() == CONTEUDO
+
+
+def test_export_com_extensao_nao_duplica(service, config, tmp_path):
+    """Um doc já exportado com a extensão é reconhecido como inalterado."""
+    _FakeDrive.arquivos = [
+        _arquivo("D1", "relatorio", mimeType="application/vnd.google-apps.document")
+    ]
+    destino = tmp_path / "backup"
+
+    primeiro = executar_backup(service, config, destino)
+    segundo = executar_backup(service, config, destino)
+
+    assert primeiro.baixados == 1
+    assert segundo.baixados == 0
+    assert segundo.ignorados == 1
 
 
 def test_documento_no_limite_e_exportado(service, config, tmp_path):
@@ -681,25 +1061,44 @@ def test_documento_no_limite_e_exportado(service, config, tmp_path):
     assert stats.baixados == 1
 
 
-def test_lro_nao_conta_como_falha_repetivel(service, config, tmp_path):
+def test_vids_lro_transitorio_e_repetido(service, config, tmp_path, monkeypatch):
+    """Falha temporária no files.download do Vids é repetida, não vira falha."""
+    _FakeDrive.arquivos = [
+        _arquivo("V1", "meu-video", mimeType="application/vnd.google-apps.video")
+    ]
+    tentativas = {"n": 0}
+
+    def lro_transitorio(servico, file_id, alvo, mime_type):
+        tentativas["n"] += 1
+        if tentativas["n"] == 1:
+            raise TransientDriveError("429")
+        alvo.write_bytes(b"mp4")
+        return alvo
+
+    monkeypatch.setattr("agebackup.backup.download_document_async", lro_transitorio)
+    monkeypatch.setattr("agebackup.backup.time.sleep", lambda *args: None)
+
+    stats = executar_backup(service, config, tmp_path / "backup")
+
+    assert stats.falhas == 0
+    assert stats.baixados == 1
+    assert tentativas["n"] == 2
+
+
+def test_lro_e_reportado_no_resumo(service, config, tmp_path, monkeypatch):
     _FakeDrive.arquivos = [
         _arquivo("V1", "meu-video", mimeType="application/vnd.google-apps.video")
     ]
 
-    stats = executar_backup(service, config, tmp_path / "backup")
+    def lro_falso(servico, file_id, alvo, mime_type):
+        alvo.write_bytes(b"mp4")
+        return alvo
 
-    assert stats.falhas == 0, "não há o que repetir; só exige LRO"
-    assert stats.requer_lro == 1
-
-
-def test_lro_e_reportado_no_resumo(service, config, tmp_path):
-    _FakeDrive.arquivos = [
-        _arquivo("V1", "meu-video", mimeType="application/vnd.google-apps.video")
-    ]
+    monkeypatch.setattr("agebackup.backup.download_document_async", lro_falso)
 
     stats = executar_backup(service, config, tmp_path / "backup")
 
-    assert "exigem operação longa" in stats.resumo()
+    assert "por operação longa" in stats.resumo()
 
 
 def test_rotacao_desativada_nao_comprime(service, config, tmp_path):
@@ -805,3 +1204,285 @@ def test_rotacao_comprime_dentro_da_subpasta(service, config, tmp_path):
     executar_backup(service, config, tmp_path / "backup")
 
     assert list(pasta_logs.glob("*.gz")), "o mês anterior deve ser comprimido ali"
+
+
+def test_reconstruir_pendentes_usa_log_e_manifesto(
+    service, config, tmp_path, monkeypatch
+):
+    """Reconstrói um PDF já baixado, usando o log como lista de trabalho."""
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import reconstruir_pendentes
+    from agebackup.falhas import Falha
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "P1",
+            "apresentacao",
+            mimeType="application/vnd.google-apps.presentation",
+        )
+    ]
+    (destino / "apresentacao.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    manifest_mod.registrar(
+        registros, "apresentacao.pdf", "P1", "apresentacao", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+    falhas_mod.registrar(
+        config.logs.pasta(destino),
+        [Falha(nome="apresentacao", categoria=falhas_mod.CAT_GRANDE, drive_id="P1")],
+    )
+
+    def reconstruir_falso(mime_type, file_id, alvo):
+        alvo.write_bytes(b"pptx")
+        return alvo
+
+    monkeypatch.setattr(reconstruir_mod, "reconstruir", reconstruir_falso)
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    assert (reconstruidos, falhas) == (1, 0)
+    assert (destino / "apresentacao.reconstruido.pptx").read_bytes() == b"pptx"
+
+
+def test_reconstruir_pendentes_baixa_o_original_direto(
+    service, config, tmp_path, monkeypatch
+):
+    """Com o files.download disponível, o pendente vira o original (.pptx) limpo.
+
+    Sem o sufixo `.reconstruido`: é o export fiel, não uma reconstrução.
+    """
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import reconstruir_pendentes
+    from agebackup.falhas import Falha
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    _FakeDrive.arquivos = [
+        _arquivo("P1", "proposta", mimeType="application/vnd.google-apps.presentation")
+    ]
+    (destino / "proposta.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    manifest_mod.registrar(
+        registros, "proposta.pdf", "P1", "proposta", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+    falhas_mod.registrar(
+        config.logs.pasta(destino),
+        [Falha(nome="proposta", categoria=falhas_mod.CAT_GRANDE, drive_id="P1")],
+    )
+
+    def lro_falso(servico, file_id, alvo, mime_type):
+        alvo.write_bytes(b"pptx original")
+        return alvo
+
+    monkeypatch.setattr("agebackup.backup.download_document_async", lro_falso)
+
+    chamou_reconstruir = {"sim": False}
+    monkeypatch.setattr(
+        reconstruir_mod,
+        "reconstruir",
+        lambda *a, **k: chamou_reconstruir.__setitem__("sim", True),
+    )
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    assert (reconstruidos, falhas) == (1, 0)
+    assert (destino / "proposta.pptx").read_bytes() == b"pptx original"
+    # Não precisou da API nativa quando o original veio direto.
+    assert chamou_reconstruir["sim"] is False
+
+
+def test_reconstruir_pendentes_salva_md_quando_api_nativa_falha(
+    service, config, tmp_path
+):
+    """Sem a Docs API, um Doc pendente é reconstruído como .md (export do Drive)."""
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import reconstruir_pendentes
+    from agebackup.falhas import Falha
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    _FakeDrive.arquivos = [
+        _arquivo("D1", "documento", mimeType="application/vnd.google-apps.document")
+    ]
+    (destino / "documento.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    manifest_mod.registrar(
+        registros, "documento.pdf", "D1", "documento", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+    falhas_mod.registrar(
+        config.logs.pasta(destino),
+        [Falha(nome="documento", categoria=falhas_mod.CAT_GRANDE, drive_id="D1")],
+    )
+    # O autouse `sem_reconstrucao` faz a API nativa falhar.
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    assert (reconstruidos, falhas) == (1, 0)
+    assert (destino / "documento.reconstruido.md").read_bytes() == CONTEUDO
+
+
+def test_reconstruir_pendentes_ignora_tipo_sem_reconstrutor(
+    service, config, tmp_path, monkeypatch
+):
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import reconstruir_pendentes
+    from agebackup.falhas import Falha
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    _FakeDrive.arquivos = [
+        _arquivo("D1", "desenho", mimeType="application/vnd.google-apps.drawing")
+    ]
+    (destino / "desenho.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    manifest_mod.registrar(
+        registros, "desenho.pdf", "D1", "desenho", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+    falhas_mod.registrar(
+        config.logs.pasta(destino),
+        [Falha(nome="desenho", categoria=falhas_mod.CAT_GRANDE, drive_id="D1")],
+    )
+
+    chamou = {"sim": False}
+    monkeypatch.setattr(
+        reconstruir_mod,
+        "reconstruir",
+        lambda *a, **k: chamou.__setitem__("sim", True),
+    )
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    assert (reconstruidos, falhas) == (0, 0)
+    assert chamou["sim"] is False
+
+
+def test_reconstruir_pendentes_sem_log_nao_faz_nada(service, config, tmp_path):
+    from agebackup.backup import reconstruir_pendentes
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, tmp_path / "backup")
+
+    assert (reconstruidos, falhas) == (0, 0)
+
+
+def test_reconstruir_pendentes_pega_pdf_sem_log(service, config, tmp_path, monkeypatch):
+    """Um PDF de nativo baixado antes desta função (sem log) ainda é reconstruído."""
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import reconstruir_pendentes
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    _FakeDrive.arquivos = [
+        _arquivo("P1", "proposta", mimeType="application/vnd.google-apps.presentation")
+    ]
+    (destino / "proposta.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    # O nome no Drive de um nativo não traz extensão.
+    manifest_mod.registrar(
+        registros, "proposta.pdf", "P1", "proposta", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+    # Sem nenhum registro no log de falhas.
+
+    def reconstruir_falso(mime_type, file_id, alvo):
+        alvo.write_bytes(b"pptx")
+        return alvo
+
+    monkeypatch.setattr(reconstruir_mod, "reconstruir", reconstruir_falso)
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    assert (reconstruidos, falhas) == (1, 0)
+    assert (destino / "proposta.reconstruido.pptx").read_bytes() == b"pptx"
+
+
+def test_reconstruir_pendentes_ignora_pdf_enviado(
+    service, config, tmp_path, monkeypatch
+):
+    """PDF enviado (nome no Drive termina em .pdf) não é candidato a reconstrução."""
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import reconstruir_pendentes
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    (destino / "manual.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    manifest_mod.registrar(
+        registros, "manual.pdf", "M1", "manual.pdf", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+
+    def nao_pode(*args, **kwargs):  # pragma: no cover - só falha se for chamado
+        raise AssertionError("não deveria consultar o tipo de um PDF enviado")
+
+    monkeypatch.setattr("agebackup.backup._mime_do_drive", nao_pode)
+
+    reconstruidos, falhas = reconstruir_pendentes(service, config, destino)
+
+    assert (reconstruidos, falhas) == (0, 0)
+
+
+def test_original_recuperado_reconhece_export_fiel(tmp_path):
+    from agebackup.backup import original_recuperado
+
+    pdf = tmp_path / "proposta.pdf"
+    pdf.write_bytes(CONTEUDO)
+
+    assert original_recuperado(pdf) is False
+    (tmp_path / "proposta.pptx").write_bytes(b"pptx")
+    assert original_recuperado(pdf) is True
+
+
+def test_original_recuperado_reconhece_reconstrucao(tmp_path):
+    from agebackup.backup import original_recuperado
+
+    pdf = tmp_path / "documento.pdf"
+    pdf.write_bytes(CONTEUDO)
+
+    assert original_recuperado(pdf) is False
+    (tmp_path / "documento.reconstruido.md").write_bytes(b"# doc")
+    assert original_recuperado(pdf) is True
+
+
+def test_original_recuperado_nao_confunde_com_vizinho(tmp_path):
+    from agebackup.backup import original_recuperado
+
+    pdf = tmp_path / "proposta.pdf"
+    pdf.write_bytes(CONTEUDO)
+    (tmp_path / "outro.pdf").write_bytes(CONTEUDO)
+    (tmp_path / "outro.pptx").write_bytes(b"pptx")
+
+    assert original_recuperado(pdf) is False
+
+
+def test_pendentes_de_original_esconde_recuperado(service, config, tmp_path):
+    from agebackup import manifest as manifest_mod
+    from agebackup.backup import pendentes_de_original
+    from agebackup.falhas import Falha
+
+    destino = tmp_path / "backup"
+    destino.mkdir()
+    (destino / "proposta.pdf").write_bytes(CONTEUDO)
+    registros: dict = {}
+    manifest_mod.registrar(
+        registros, "proposta.pdf", "P1", "proposta", len(CONTEUDO), _quando()
+    )
+    manifest_mod.salvar(destino, registros)
+    falhas_mod.registrar(
+        config.logs.pasta(destino),
+        [
+            Falha(nome="proposta", categoria=falhas_mod.CAT_GRANDE, drive_id="P1"),
+            Falha(nome="outra", categoria=falhas_mod.CAT_GRANDE, drive_id="P2"),
+        ],
+    )
+
+    # P1 ainda está só em PDF; P2 nem no manifesto está.
+    assert pendentes_de_original(destino, config.logs.pasta(destino)) == {"P1", "P2"}
+
+    (destino / "proposta.pptx").write_bytes(b"pptx")
+
+    assert pendentes_de_original(destino, config.logs.pasta(destino)) == {"P2"}
