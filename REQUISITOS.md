@@ -1101,6 +1101,32 @@ pequena (usando `folder_id`) antes de soltar o Drive inteiro.
 
 ---
 
+## 12. Empacotamento (executável autônomo)
+
+Além do `uv build` (wheel/sdist), o projeto pode ser congelado em **executáveis
+autônomos** com o [PyInstaller](https://pyinstaller.org/), que dispensam Python
+e `uv` na máquina de destino:
+
+```bash
+./packaging/build.sh
+# dist/agebackup-backup   dist/agebackup-setup   (~49 MB cada)
+```
+
+| Aspecto | Detalhe |
+| --- | --- |
+| Formato | `onefile` (arquivo único), um binário por comando real |
+| Conteúdo | interpretador, dependências e *data files* (templates `.pptx`/`.docx`, `cacert.pem`, discovery docs da API) |
+| Plataforma | específico do SO; ainda depende da glibc do sistema (não é estático) |
+| Binários | `agebackup-backup` e `agebackup-setup`; o entry point `agebackup` (placeholder) **não** é empacotado |
+
+Os *data files* entram à mão nos specs porque a análise estática não os enxerga.
+Em especial, os discovery docs (`drive.v3`, `slides.v1`, `docs.v1`, `sheets.v4`)
+são **obrigatórios**: `googleapiclient.discovery.build` usa descoberta estática
+por padrão (sem fallback de rede). Detalhes em
+[packaging/README.md](packaging/README.md).
+
+---
+
 ## Estrutura do projeto
 
 ```
@@ -1115,6 +1141,7 @@ pequena (usando `folder_id`) antes de soltar o Drive inteiro.
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação mensal e retenção
 │   └── setup.py       # tela de configuração
+├── packaging/         # executável autônomo (PyInstaller)
 ├── tests/             # 323 testes
 ├── USERGUIDE.md        # guia do usuário
 └── .opencode/skills/  # documentação de referência da API

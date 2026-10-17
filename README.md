@@ -73,6 +73,20 @@ A configuração fica em `~/.config/agebackup/config.json` e o assistente
 (`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo
 confirmação — nada precisa ser reescrito do zero.
 
+## Executável autônomo
+
+Para rodar **sem Python instalado**, o projeto gera binários únicos com o
+[PyInstaller](https://pyinstaller.org/):
+
+```bash
+./packaging/build.sh
+# dist/agebackup-backup   dist/agebackup-setup   (~49 MB cada)
+```
+
+Cada binário embute o interpretador, as dependências e os dados necessários
+(templates `.pptx`/`.docx`, `cacert.pem` e os discovery docs da API), funcionando
+offline para montar o cliente. Detalhes em [packaging/README.md](packaging/README.md).
+
 ## Estrutura do backup
 
 ```
@@ -91,6 +105,7 @@ destino/
 | --- | --- |
 | [REQUISITOS.md](REQUISITOS.md) | Requisitos e manual completo, do zero à produção |
 | [USERGUIDE.md](USERGUIDE.md) | Guia rápido de uso passo a passo |
+| [packaging/README.md](packaging/README.md) | Executável autônomo (PyInstaller) |
 
 ## Desenvolvimento
 
@@ -98,6 +113,7 @@ destino/
 uv run python -m pytest   # 323 testes (nenhum chama a API real)
 uv run black .            # formatação
 uv run ruff check .       # lint
+./packaging/build.sh      # executáveis autônomos (ver packaging/README.md)
 ```
 
 A suíte usa um servidor HTTP local que emula a Drive API — não há chamadas

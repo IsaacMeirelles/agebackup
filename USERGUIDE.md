@@ -35,6 +35,11 @@ gcloud --version
 > Você pode usar o AgeBackup **sem gcloud**, escolhendo o método **Service
 > Account** no assistente (não abre navegador).
 
+> **Sem Python?** Existem executáveis autônomos (`agebackup-setup` e
+> `agebackup-backup`) que dispensam Python e `uv` — basta trocar
+> `uv run agebackup-setup` por `./agebackup-setup` (e assim por diante). Veja
+> [packaging/README.md](packaging/README.md) para gerá-los.
+
 ---
 
 ## Passo 1 — Escolher como autenticar
@@ -729,6 +734,10 @@ uv run agebackup-backup --reconstruir-grandes  # baixa o original dos pendentes
 uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
 ```
 
+> Para rodar **sem Python** (`uv`), gere os executáveis autônomos com
+> `./packaging/build.sh` — a saída vai para `dist/`. Detalhes em
+> [packaging/README.md](packaging/README.md).
+
 ## Arquivos do projeto
 
 ```
@@ -743,6 +752,7 @@ uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação mensal e retenção dos logs
 │   └── setup.py       # tela de configuração
+├── packaging/         # executável autônomo (PyInstaller)
 ├── tests/             # 323 testes
 └── .opencode/skills/  # documentação de referência
 ```
