@@ -147,9 +147,12 @@ Saída típica:
 ==============================================================
   Conta    : usuario@exemplo.com
   Destino  : /home/isaac/agebackup
-  Escopo   : Drive inteiro
+  Pasta    : Drive inteiro
+  Drives   : apenas o meu
   Modo     : real
+  Logs     : /home/isaac/agebackup/logs
 
+  Consultando o Drive...
   baixando     relatorio.pdf...
   ok           relatorio.pdf
 
@@ -169,7 +172,7 @@ Saída típica:
 | `--listar-grandes` | Lista os grandes que ainda estão só em PDF (esconde os já recuperados) |
 | `--reconstruir-grandes` | Baixa o original/editável dos grandes já salvos em PDF |
 | `--logs` | Lista os logs e os arquivos comprimidos |
-| `--help` | Não implementado; use as opções acima |
+| `--help` | Mostra a ajuda do comando |
 
 O comando retorna **código de saída 1** se algum arquivo falhou, 0 caso
 contrário — útil para agendar com cron.

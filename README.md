@@ -67,7 +67,11 @@ Parâmetros úteis de `agebackup-backup`:
 | --- | --- |
 | `--dry-run` | Lista o que seria baixado, sem gravar |
 | `--verbose` | Detalha cada arquivo processado |
-| `--logs` | Ajusta pasta, rotação e retenção de logs |
+| `--falhas` | Lista as últimas falhas registradas |
+| `--listar-grandes` | Lista os grandes ainda só em PDF (com link) |
+| `--reconstruir-grandes` | Baixa o original/editável dos grandes já em PDF |
+| `--logs` | Mostra os logs e a política de rotação |
+| `-h`, `--help` | Mostra a ajuda |
 
 A configuração fica em `~/.config/agebackup/config.json` e o assistente
 (`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo
@@ -118,6 +122,18 @@ uv run ruff check .       # lint
 
 A suíte usa um servidor HTTP local que emula a Drive API — não há chamadas
 de rede nos testes.
+
+## Roadmap
+
+> **Planejado, ainda não implementado.** Os itens abaixo **não existem** no
+> código atual — esta seção é a lista do que vem a seguir.
+
+| Fase | O que traz |
+| --- | --- |
+| **A** | CLI com `argparse` (flag inválida vira erro, em vez de cair no fluxo do backup; `--version`) + CI no GitHub Actions (ruff, black, pytest) |
+| **B** | Detecção de renomeações/movimentações via manifesto (para de deixar cópia órfã no nome antigo) + `--check` — verificação offline de integridade do backup |
+| **C** | Downloads paralelos com `--workers` (padrão 4) e progresso/ETA por arquivo |
+| **D** | Suíte opt-in contra a API real (`pytest -m real`, com credenciais) |
 
 ## Licença
 

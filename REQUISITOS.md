@@ -20,6 +20,7 @@ Siga na ordem.
 9. [Referência de comandos](#9-referência-de-comandos)
 10. [Problemas comuns](#10-problemas-comuns)
 11. [Limitações conhecidas](#11-limitações-conhecidas)
+12. [Empacotamento (executável autônomo)](#12-empacotamento-executável-autônomo)
 
 ---
 
@@ -348,6 +349,7 @@ uv run agebackup-setup --status
     escopos      : https://www.googleapis.com/auth/drive.readonly
     destino      : /home/isaac/agebackup
     pasta Drive  : (Drive inteiro)
+    drives       : nao incluidos
     retencao     : 12 meses
     compactacao  : gzip
     pasta logs   : logs
@@ -777,6 +779,7 @@ rebaixa o que mudou.
 | `--listar-grandes` | Lista os grandes que ainda estão só em PDF (esconde os já recuperados) |
 | `--reconstruir-grandes` | Baixa o original/editável dos grandes já em PDF (`files.download`; reconstrução nativa como reserva) |
 | `--logs` | Mostra os logs, a política e os comprimidos |
+| `-h`, `--help` | Mostra a ajuda |
 
 **Código de saída:** `0` se tudo deu certo, `1` se houve falha (ver
 [seção 11](#11-limitações-conhecidas)).
