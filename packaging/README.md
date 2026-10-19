@@ -18,6 +18,7 @@ Saída (em `dist/`, que é *gitignored*):
 | --- | --- |
 | `dist/agebackup-backup` | `uv run agebackup-backup` |
 | `dist/agebackup-setup` | `uv run agebackup-setup` |
+| `dist/agebackup-compactar` | `uv run agebackup-compactar` |
 
 Os intermediários ficam em `build/pyinstaller/` (`build/` também é *gitignored*)
 e podem ser apagados a qualquer momento.
@@ -25,16 +26,18 @@ e podem ser apagados a qualquer momento.
 Requisito único: `uv` no `PATH`. O PyInstaller faz parte do grupo de dependências
 de desenvolvimento (`pyproject.toml`), então não é preciso ativar nada à mão.
 
-## Por que dois binários
+## Por que três binários
 
-O projeto declara dois comandos reais — `agebackup-backup` e `agebackup-setup` —
-e cada um vira um executável. O terceiro entry point (`agebackup`) é apenas um
-*placeholder* que imprime uma saudação; por isso **não** é empacotado.
+O projeto declara três comandos reais — `agebackup-backup`, `agebackup-setup` e
+`agebackup-compactar` — e cada um vira um executável. O quarto entry point
+(`agebackup`) é apenas um *placeholder* que imprime uma saudação; por isso
+**não** é empacotado.
 
 ## O que é embutido além do código
 
 O PyInstaller encontra sozinho os módulos importados, mas não os *arquivos de
-dados*. Os specs (`agebackup-backup.spec` e `agebackup-setup.spec`) acrescentam:
+dados*. Os specs (`agebackup-backup.spec`, `agebackup-setup.spec` e
+`agebackup-compactar.spec`) acrescentam:
 
 | Item | Por quê |
 | --- | --- |
@@ -51,11 +54,13 @@ corromper bibliotecas nativas.
 
 | Arquivo | Papel |
 | --- | --- |
-| `build.sh` | constrói os dois executáveis |
+| `build.sh` | constrói os três executáveis |
 | `agebackup-backup.spec` | spec do PyInstaller (backup) |
 | `agebackup-setup.spec` | spec do PyInstaller (setup) |
+| `agebackup-compactar.spec` | spec do PyInstaller (compactação) |
 | `entry_backup.py` | script de entrada congelado (backup) |
 | `entry_setup.py` | script de entrada congelado (setup) |
+| `entry_compactar.py` | script de entrada congelado (compactação) |
 
 Os specs resolvem os caminhos via `SPECPATH`, então o build funciona de qualquer
 diretório de trabalho.

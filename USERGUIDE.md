@@ -35,10 +35,10 @@ gcloud --version
 > Você pode usar o AgeBackup **sem gcloud**, escolhendo o método **Service
 > Account** no assistente (não abre navegador).
 
-> **Sem Python?** Existem executáveis autônomos (`agebackup-setup` e
-> `agebackup-backup`) que dispensam Python e `uv` — basta trocar
-> `uv run agebackup-setup` por `./agebackup-setup` (e assim por diante). Veja
-> [packaging/README.md](packaging/README.md) para gerá-los.
+> **Sem Python?** Existem executáveis autônomos (`agebackup-setup`,
+> `agebackup-backup` e `agebackup-compactar`) que dispensam Python e `uv` — basta
+> trocar `uv run agebackup-setup` por `./agebackup-setup` (e assim por diante).
+> Veja [packaging/README.md](packaging/README.md) para gerá-los.
 
 ---
 
@@ -573,6 +573,72 @@ muito repetitivo. Logs de 12 meses raramente passam de poucos MB.
 
 ---
 
+## Passo 9 — Compactar o backup em um arquivo
+
+Depois do backup, você pode juntar a pasta do backup inteira em um único arquivo
+`.tar.gz` — útil para guardar um retrato datado em outro disco ou enviar para a
+nuvem.
+
+```sh
+uv run agebackup-compactar
+```
+
+```
+==============================================================
+  Compactar backup
+==============================================================
+  Origem   : /home/isaac/bkps
+  Destino  : /mnt/c/backups
+  Retencao : guardar todos
+  Modo     : real
+
+  Arquivo  : /mnt/c/backups/bkps-20261019-163509.tar.gz
+  Tamanho  : 727.7 MB
+  Conteudo : 1732 arquivo(s)
+```
+
+O nome gerado é `<pasta>-AAAAMMDD-HHMMSS.tar.gz`. A gravação é atômica: o
+AgeBackup escreve um `.tmp` e só então renomeia, então uma falha no meio não
+deixa um arquivo pela metade. Os `.tmp` de execuções interrompidas ficam de fora
+do arquivo.
+
+### Onde o arquivo é gravado
+
+- `--destino P` — grava em `P`;
+- sem a opção, usa o `compactacao.destino` da configuração;
+- sem nada configurado, grava na pasta **acima** do backup.
+
+Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
+
+```json
+"compactacao": {
+  "destino": "/mnt/c/backups",
+  "manter": 0
+}
+```
+
+| Campo | Valores | Efeito |
+| --- | --- | --- |
+| `destino` | caminho | Onde gravar (vazio = pasta acima do backup) |
+| `manter` | `0` a `60` | `0` = guardar tudo; N = manter os N mais recentes |
+
+> A pasta de destino **não** pode ficar dentro do backup: senão o próprio
+> arquivo entraria no backup e cresceria a cada execução.
+
+### Simular, listar e limitar
+
+```sh
+uv run agebackup-compactar --dry-run       # mostra o que seria feito, sem gravar
+uv run agebackup-compactar --listar        # lista os arquivos já gerados
+uv run agebackup-compactar --manter 5      # guarda só os 5 mais recentes
+uv run agebackup-compactar --destino /mnt/outro-disco
+```
+
+> A compactação é um passo **separado** do backup. Rode quando quiser — por
+> exemplo no fim da linha do cron (veja a seguir).
+
+---
+
 ## Agendar execução automática
 
 Edite o crontab:
@@ -585,12 +651,14 @@ Backup todo dia às 3h da manhã:
 
 ```cron
 0 3 * * * cd /home/isaac/projetos/agebackup && /home/isaac/projetos/agebackup/.venv/bin/python -m agebackup.cli >> /home/isaac/agebackup-backup.log 2>&1
+0 4 * * * cd /home/isaac/projetos/agebackup && .venv/bin/python -m agebackup.compactacao >> /home/isaac/agebackup-compactar.log 2>&1
 ```
 
 Verifique que funcionou:
 
 ```sh
 tail -20 ~/agebackup-backup.log
+tail -20 ~/agebackup-compactar.log
 ```
 
 ---
@@ -744,6 +812,10 @@ uv run agebackup-backup --listar-grandes  # originais grandes guardados em PDF
 uv run agebackup-backup --reconstruir-grandes  # baixa o original dos pendentes
 uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
 uv run agebackup-backup --check   # conferir integridade (offline)
+
+uv run agebackup-compactar           # arquivar o backup em .tar.gz
+uv run agebackup-compactar --listar  # listar os arquivos gerados
+uv run agebackup-compactar --dry-run # simular, sem gravar
 ```
 
 > Para rodar **sem Python** (`uv`), gere os executáveis autônomos com
@@ -757,6 +829,7 @@ uv run agebackup-backup --check   # conferir integridade (offline)
 ├── src/agebackup/
 │   ├── backup.py      # motor do backup
 │   ├── cli.py         # comando agebackup-backup
+│   ├── compactacao.py # comando agebackup-compactar (.tar.gz do backup)
 │   ├── config.py      # configuração, credenciais e política de logs
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── falhas.py      # log de falhas
@@ -766,7 +839,7 @@ uv run agebackup-backup --check   # conferir integridade (offline)
 │   ├── setup.py       # tela de configuração
 │   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executável autônomo (PyInstaller)
-├── tests/             # 350 testes
+├── tests/             # 379 testes
 └── .opencode/skills/  # documentação de referência
 ```
 

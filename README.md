@@ -40,6 +40,9 @@ automaticamente e os logs giram mensalmente com retenção configurável.
   transferência (1 a 10 tentativas, padrão 3).
 - **Logs com rotação mensal** — falhas e remoções registrados em
   `destino/logs/`, comprimidos em `.log.gz` e retidos por X meses.
+- **Compactação do backup** — `agebackup-compactar` junta a pasta do backup
+  inteira em um único `.tar.gz` datado, gravado no destino configurado (por
+  padrão, a pasta acima do backup), com retenção opcional.
 - **Dois modos de autenticação** — Application Default Credentials (conta
   pessoal/gestor) ou Service Account (compartilhando a pasta por e-mail).
 
@@ -64,6 +67,7 @@ uv run agebackup-setup    # assistente de configuração e autenticação
 uv run agebackup-setup --test   # testa credenciais e acesso à pasta
 uv run agebackup-backup --dry-run   # simula, sem gravar
 uv run agebackup-backup             # executa o backup
+uv run agebackup-compactar          # arquiva o backup em um .tar.gz
 ```
 
 Parâmetros úteis de `agebackup-backup`:
@@ -79,6 +83,19 @@ Parâmetros úteis de `agebackup-backup`:
 | `--check` | Confere o backup local contra o manifesto (offline, sem API) |
 | `-h`, `--help` | Mostra a ajuda |
 
+Parâmetros úteis de `agebackup-compactar`:
+
+| Flag | Efeito |
+| --- | --- |
+| `--destino P` | Grava o arquivo em `P` (padrão: o configurado, ou a pasta acima do backup) |
+| `--manter N` | Guarda apenas os N arquivos mais recentes (0 = todos) |
+| `--listar` | Lista os arquivos de compactação já gerados |
+| `--dry-run` | Simula, sem gravar |
+| `-h`, `--help` | Mostra a ajuda |
+
+O nome gerado é `<pasta>-AAAAMMDD-HHMMSS.tar.gz` e a gravação é atômica
+(escreve um `.tmp` e só então renomeia).
+
 A configuração fica em `~/.config/agebackup/config.json` e o assistente
 (`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo
 confirmação — nada precisa ser reescrito do zero.
@@ -90,7 +107,7 @@ Para rodar **sem Python instalado**, o projeto gera binários únicos com o
 
 ```bash
 ./packaging/build.sh
-# dist/agebackup-backup   dist/agebackup-setup   (~49 MB cada)
+# dist/agebackup-backup   dist/agebackup-setup   dist/agebackup-compactar   (~49 MB cada)
 ```
 
 Cada binário embute o interpretador, as dependências e os dados necessários
@@ -120,7 +137,7 @@ destino/
 ## Desenvolvimento
 
 ```bash
-uv run python -m pytest   # 350 testes (nenhum chama a API real)
+uv run python -m pytest   # 379 testes (nenhum chama a API real)
 uv run black .            # formatação
 uv run ruff check .       # lint
 ./packaging/build.sh      # executáveis autônomos (ver packaging/README.md)

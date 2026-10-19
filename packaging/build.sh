@@ -2,7 +2,7 @@
 #
 # Gera os executáveis autônomos (standalone) do AgeBackup com o PyInstaller.
 #
-# Saída:  dist/agebackup-backup  e  dist/agebackup-setup  (binários únicos)
+# Saída:  dist/agebackup-backup  dist/agebackup-setup  dist/agebackup-compactar
 # Trabalho: build/pyinstaller/  (intermediários; pode ser apagado)
 #
 # Uso (da raiz do projeto ou de qualquer lugar):
@@ -18,7 +18,7 @@ cd "$raiz"
 
 echo ">> Construindo executáveis em dist/ ..."
 
-for spec in packaging/agebackup-backup.spec packaging/agebackup-setup.spec; do
+for spec in packaging/agebackup-backup.spec packaging/agebackup-setup.spec packaging/agebackup-compactar.spec; do
     echo ">> $spec"
     uv run pyinstaller \
         --noconfirm \
@@ -30,4 +30,4 @@ done
 
 echo
 echo ">> Pronto. Executáveis gerados:"
-ls -lh dist/agebackup-backup dist/agebackup-setup
+ls -lh dist/agebackup-backup dist/agebackup-setup dist/agebackup-compactar

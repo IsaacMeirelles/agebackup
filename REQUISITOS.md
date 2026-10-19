@@ -32,6 +32,10 @@ arquivos para lá. Na segunda execução, só baixa o que mudou.
 Ponto importante: **o AgeBackup nunca apaga nada do seu computador.** Ele apenas
 *registra* em log quando um arquivo some do Drive, para você decidir.
 
+Além do backup, há o comando separado `agebackup-compactar`, que junta a pasta
+do backup inteira em um arquivo `.tar.gz` datado (ver
+[seção 6](#6-executar-o-backup)).
+
 ---
 
 ## 2. Pré-requisitos
@@ -363,8 +367,8 @@ uv run agebackup-setup --status
 
 ## 5. Referência dos campos
 
-Referência completa de todos os campos. O arquivo tem três seções: `account`,
-`backup` e `logs`.
+Referência completa de todos os campos. O arquivo tem as seções `account`,
+`backup`, `logs`, `retry` e `compactacao`.
 
 ```json
 {
@@ -386,6 +390,13 @@ Referência completa de todos os campos. O arquivo tem três seções: `account`
     "keep_months": 12,
     "compress": true,
     "directory": "logs"
+  },
+  "retry": {
+    "attempts": 3
+  },
+  "compactacao": {
+    "destino": "",
+    "manter": 0
   }
 }
 ```
@@ -692,6 +703,35 @@ exemplo, uma pasta `logs` na origem), para não misturar os logs do AgeBackup co
 arquivos copiados. Se acontecer, eles não colidem pelos nomes (os logs começam
 com `.agebackup-`), mas ficam juntos.
 
+### Seção `compactacao`
+
+Controla o comando `agebackup-compactar`, que junta a pasta do backup inteira em
+um `.tar.gz` datado. É um passo separado do backup.
+
+#### `destino`
+
+Pasta onde os arquivos compactados são gravados.
+
+| Valor | Efeito |
+| --- | --- |
+| `""` (padrão) | Grava na pasta **acima** do backup |
+| caminho | Grava nesse caminho (ex.: `/mnt/c/backups`) |
+
+> A pasta de destino **não** pode ficar dentro do backup: senão o próprio
+> arquivo entraria no backup e cresceria a cada execução.
+
+#### `manter`
+
+Quantos arquivos compactados ficam guardados.
+
+| Valor | Efeito |
+| --- | --- |
+| `0` (padrão) | Guarda todos |
+| `1` a `60` | Mantém só os N mais recentes; os demais são apagados |
+
+Valores fora do intervalo são ajustados ao máximo (60). O nome
+(`<pasta>-AAAAMMDD-HHMMSS.tar.gz`) já ordena cronologicamente.
+
 ### Resumo das opções múltiplas
 
 | Campo | Opções | Padrão |
@@ -703,6 +743,8 @@ com `.agebackup-`), mas ficam juntos.
 | `logs.keep_months` | `0` a `120` | `12` |
 | `logs.compress` | `true`, `false` | `true` |
 | `logs.directory` | nome de subpasta ou vazio | `logs` |
+| `compactacao.destino` | caminho ou vazio | vazio (pasta acima do backup) |
+| `compactacao.manter` | `0` a `60` | `0` |
 
 ---
 
@@ -786,6 +828,22 @@ rebaixa o que mudou.
 [seção 11](#11-limitações-conhecidas)). Com `--check`, `1` significa erro de
 integridade (arquivo faltando ou tamanho divergente); avisos isolados
 (temporários órfãos, arquivos não constantes no manifesto) saem com `0`.
+
+### Compactar o backup em um arquivo
+
+O backup em si é uma pasta. Para guardar um retrato datado (em outro disco ou na
+nuvem), o comando `agebackup-compactar` junta tudo em um único `.tar.gz`:
+
+```sh
+uv run agebackup-compactar          # gera <pasta>-AAAAMMDD-HHMMSS.tar.gz
+uv run agebackup-compactar --listar # lista os arquivos gerados
+```
+
+A gravação é atômica (escreve um `.tmp` e só então renomeia) e os `.tmp`
+residuais ficam de fora do arquivo. O destino e a retenção vêm da seção
+`compactacao` (ver a [seção 5](#seção-compactacao)); `--destino P` e `--manter N`
+sobrepõem os valores configurados. É um passo **separado** do backup — pode ir no
+cron logo depois dele (ver [seção 8](#8-agendar-execução-automática)).
 
 ---
 
@@ -963,6 +1021,7 @@ Backup todo dia às 3h:
 
 ```cron
 0 3 * * * cd /home/isaac/projetos/agebackup && /home/isaac/projetos/agebackup/.venv/bin/python -m agebackup.cli >> /home/isaac/agebackup-backup.log 2>&1
+0 4 * * * cd /home/isaac/projetos/agebackup && .venv/bin/python -m agebackup.compactacao >> /home/isaac/agebackup-compactar.log 2>&1
 ```
 
 Detalhes que importam:
@@ -971,6 +1030,9 @@ Detalhes que importam:
   inclui o venv.
 - **`>>` e não `>`**: acrescentar, para preservar o histórico.
 - **Verifique** rodando: `tail -20 ~/agebackup-backup.log`
+
+A segunda linha é opcional: compacta o backup em `.tar.gz` uma hora depois (ver
+[seção 6](#6-executar-o-backup)).
 
 ---
 
@@ -998,6 +1060,16 @@ Detalhes que importam:
 | `uv run agebackup-backup --reconstruir-grandes` | Baixa o original dos grandes já em PDF |
 | `uv run agebackup-backup --logs` | Logs e política de rotação |
 | `uv run agebackup-backup --check` | Verifica integridade do backup local (offline) |
+
+### Compactação
+
+| Comando | O quê |
+| --- | --- |
+| `uv run agebackup-compactar` | Junta o backup em um `.tar.gz` datado |
+| `uv run agebackup-compactar --destino P` | Grava em `P` |
+| `uv run agebackup-compactar --manter N` | Mantém só os N arquivos mais recentes |
+| `uv run agebackup-compactar --listar` | Lista os arquivos gerados |
+| `uv run agebackup-compactar --dry-run` | Simula, não grava |
 
 ---
 
@@ -1098,7 +1170,7 @@ Seja claro sobre o que **não** funciona:
 
 ### Sobre a última limitação
 
-Isto é importante: o código está coberto por **350 testes** que rodam contra um
+Isto é importante: o código está coberto por **379 testes** que rodam contra um
 servidor HTTP local emulado, reproduzindo o comportamento da API. O caminho
 real já foi exercitado manualmente (leitura somente, com uma Service Account),
 mas não é coberto pela suíte automatizada.
@@ -1116,7 +1188,7 @@ e `uv` na máquina de destino:
 
 ```bash
 ./packaging/build.sh
-# dist/agebackup-backup   dist/agebackup-setup   (~49 MB cada)
+# dist/agebackup-backup   dist/agebackup-setup   dist/agebackup-compactar   (~49 MB cada)
 ```
 
 | Aspecto | Detalhe |
@@ -1124,7 +1196,7 @@ e `uv` na máquina de destino:
 | Formato | `onefile` (arquivo único), um binário por comando real |
 | Conteúdo | interpretador, dependências e *data files* (templates `.pptx`/`.docx`, `cacert.pem`, discovery docs da API) |
 | Plataforma | específico do SO; ainda depende da glibc do sistema (não é estático) |
-| Binários | `agebackup-backup` e `agebackup-setup`; o entry point `agebackup` (placeholder) **não** é empacotado |
+| Binários | `agebackup-backup`, `agebackup-setup` e `agebackup-compactar`; o entry point `agebackup` (placeholder) **não** é empacotado |
 
 Os *data files* entram à mão nos specs porque a análise estática não os enxerga.
 Em especial, os discovery docs (`drive.v3`, `slides.v1`, `docs.v1`, `sheets.v4`)
@@ -1141,6 +1213,7 @@ por padrão (sem fallback de rede). Detalhes em
 ├── src/agebackup/
 │   ├── backup.py      # motor do backup
 │   ├── cli.py         # comando agebackup-backup
+│   ├── compactacao.py # comando agebackup-compactar (.tar.gz do backup)
 │   ├── config.py      # configuração, credenciais, política de logs
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── falhas.py      # log de falhas
@@ -1150,7 +1223,7 @@ por padrão (sem fallback de rede). Detalhes em
 │   ├── setup.py       # tela de configuração
 │   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executável autônomo (PyInstaller)
-├── tests/             # 350 testes
+├── tests/             # 379 testes
 ├── USERGUIDE.md        # guia do usuário
 └── .opencode/skills/  # documentação de referência da API
 ```

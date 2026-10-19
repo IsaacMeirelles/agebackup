@@ -7,11 +7,15 @@ import pytest
 
 from agebackup import config as config_mod
 from agebackup.config import (
+    MANTER_MAXIMO,
+    MANTER_MINIMO,
+    MANTER_PADRAO,
     MESES_MAXIMO,
     MESES_MINIMO,
     MESES_PADRAO,
     AccountConfig,
     BackupConfig,
+    CompactacaoConfig,
     Config,
     ConfigError,
     LogConfig,
@@ -679,3 +683,81 @@ def test_account_novos_campos_sao_persistidos(home_isolado):
     assert conta.service_account_key_path == "/tmp/k.json"
     assert conta.verified is True
     assert conta.ask_reuse is False
+
+
+# ---------------------------------------------------------------------------
+# Compactação do backup
+# ---------------------------------------------------------------------------
+
+
+def test_compactacao_padrao():
+    compactacao = CompactacaoConfig()
+
+    assert compactacao.destino == ""
+    assert compactacao.manter == MANTER_PADRAO
+
+
+def test_compactacao_pasta_padrao_e_a_pasta_acima(tmp_path):
+    assert CompactacaoConfig().pasta(tmp_path / "bkps") == tmp_path
+
+
+def test_compactacao_pasta_configurada(tmp_path):
+    compactacao = CompactacaoConfig(destino="/mnt/c/backups")
+
+    assert compactacao.pasta(tmp_path / "bkps") == Path("/mnt/c/backups")
+
+
+def test_compactacao_salva_e_carregada(home_isolado):
+    config = Config(compactacao=CompactacaoConfig(destino="/mnt/c/backups", manter=5))
+    config_mod.save(config)
+
+    carregada = config_mod.load().compactacao
+
+    assert carregada.destino == "/mnt/c/backups"
+    assert carregada.manter == 5
+
+
+def test_compactacao_config_antiga_usa_padrao(home_isolado):
+    """Config salva por versão anterior não deve quebrar."""
+    config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config_mod.CONFIG_FILE.write_text(
+        json.dumps({"backup": {"destination": "/tmp/x"}}), encoding="utf-8"
+    )
+
+    config = config_mod.load()
+
+    assert config.compactacao.destino == ""
+    assert config.compactacao.manter == MANTER_PADRAO
+
+
+def test_compactacao_manter_acima_do_limite_e_limitado(home_isolado):
+    config_mod.save(Config(compactacao=CompactacaoConfig(manter=9999)))
+
+    assert config_mod.load().compactacao.manter == MANTER_MAXIMO
+
+
+def test_compactacao_manter_negativo_vira_minimo(home_isolado):
+    config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config_mod.CONFIG_FILE.write_text(
+        json.dumps({"compactacao": {"manter": -3}}), encoding="utf-8"
+    )
+
+    assert config_mod.load().compactacao.manter == MANTER_MINIMO
+
+
+def test_compactacao_manter_texto_invalido_vira_padrao(home_isolado):
+    config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config_mod.CONFIG_FILE.write_text(
+        json.dumps({"compactacao": {"manter": "muitos"}}), encoding="utf-8"
+    )
+
+    assert config_mod.load().compactacao.manter == MANTER_PADRAO
+
+
+def test_compactacao_destino_nao_texto_vira_vazio(home_isolado):
+    config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config_mod.CONFIG_FILE.write_text(
+        json.dumps({"compactacao": {"destino": 42}}), encoding="utf-8"
+    )
+
+    assert config_mod.load().compactacao.destino == ""

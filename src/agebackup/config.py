@@ -53,6 +53,11 @@ MESES_MAXIMO = 120
 # Subpasta do destino onde os logs são gravados. Vazio = raiz do destino.
 LOGS_PADRAO = "logs"
 
+# Retenção dos arquivos compactados (.tar.gz). 0 significa "guardar todos".
+MANTER_PADRAO = 0
+MANTER_MINIMO = 0
+MANTER_MAXIMO = 60
+
 
 @dataclass
 class AccountConfig:
@@ -112,6 +117,25 @@ class RetryConfig:
 
 
 @dataclass
+class CompactacaoConfig:
+    """Compactação do backup em um arquivo .tar.gz.
+
+    `destino` é a pasta onde os arquivos compactados são gravados (vazio =
+    pasta acima do backup). `manter` limita quantos arquivos ficam guardados;
+    0 significa "guardar todos".
+    """
+
+    destino: str = ""
+    manter: int = MANTER_PADRAO
+
+    def pasta(self, destino_backup: Path) -> Path:
+        """Pasta onde os arquivos compactados são gravados."""
+        if self.destino:
+            return Path(self.destino).expanduser()
+        return destino_backup.expanduser().parent
+
+
+@dataclass
 class BackupConfig:
     """Opções do backup."""
 
@@ -128,6 +152,7 @@ class Config:
     backup: BackupConfig = field(default_factory=BackupConfig)
     logs: LogConfig = field(default_factory=LogConfig)
     retry: RetryConfig = field(default_factory=RetryConfig)
+    compactacao: CompactacaoConfig = field(default_factory=CompactacaoConfig)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -148,6 +173,9 @@ def load() -> Config | None:
         backup=BackupConfig(**_conhecidos(data.get("backup"), BackupConfig)),
         logs=LogConfig(**_conhecidos(data.get("logs"), LogConfig)),
         retry=RetryConfig(**_conhecidos(data.get("retry"), RetryConfig)),
+        compactacao=CompactacaoConfig(
+            **_conhecidos(data.get("compactacao"), CompactacaoConfig)
+        ),
     )
 
 
@@ -162,11 +190,13 @@ def _conhecidos(dados: object, modelo: type) -> dict:
 
     campos = {campo.name for campo in fields(modelo)}
     filtrado = {chave: valor for chave, valor in dados.items() if chave in campos}
-    return (
-        _ajustar_log(filtrado)
-        if modelo is LogConfig
-        else _ajustar_retry(filtrado) if modelo is RetryConfig else filtrado
-    )
+    if modelo is LogConfig:
+        return _ajustar_log(filtrado)
+    if modelo is RetryConfig:
+        return _ajustar_retry(filtrado)
+    if modelo is CompactacaoConfig:
+        return _ajustar_compactacao(filtrado)
+    return filtrado
 
 
 def _ajustar_log(dados: dict) -> dict:
@@ -192,6 +222,20 @@ def _ajustar_retry(dados: dict) -> dict:
             )
         except TypeError, ValueError:
             dados["attempts"] = RETRY_PADRAO
+    return dados
+
+
+def _ajustar_compactacao(dados: dict) -> dict:
+    """Normaliza a retenção dos arquivos compactados."""
+    if "manter" in dados:
+        try:
+            dados["manter"] = max(
+                MANTER_MINIMO, min(MANTER_MAXIMO, int(dados["manter"]))
+            )
+        except TypeError, ValueError:
+            dados["manter"] = MANTER_PADRAO
+    if "destino" in dados and not isinstance(dados["destino"], str):
+        dados["destino"] = ""
     return dados
 
 
