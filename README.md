@@ -89,12 +89,14 @@ Parâmetros úteis de `agebackup-compactar`:
 | --- | --- |
 | `--destino P` | Grava o arquivo em `P` (padrão: o configurado, ou a pasta acima do backup) |
 | `--manter N` | Guarda apenas os N arquivos mais recentes (0 = todos) |
+| `--prefixo X` | Texto entre a pasta e a data (`<pasta>_X_AAAAMMDD.tar.gz`; vazio = sem) |
 | `--listar` | Lista os arquivos de compactação já gerados |
 | `--dry-run` | Simula, sem gravar |
 | `-h`, `--help` | Mostra a ajuda |
 
-O nome gerado é `<pasta>_AAAAMMDD.tar.gz` e a gravação é atômica
-(escreve um `.tmp` e só então renomeia).
+O nome gerado é `<pasta>_AAAAMMDD.tar.gz` — ou `<pasta>_<prefixo>_AAAAMMDD.tar.gz`
+quando há prefixo — e a gravação é atômica (escreve um `.tmp` e só então
+renomeia).
 
 A configuração fica em `~/.config/agebackup/config.json` e o assistente
 (`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo

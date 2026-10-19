@@ -695,6 +695,34 @@ def test_compactacao_padrao():
 
     assert compactacao.destino == ""
     assert compactacao.manter == MANTER_PADRAO
+    assert compactacao.prefixo == ""
+
+
+def test_ajustar_prefixo_compactacao_normaliza():
+    assert config_mod.ajustar_prefixo_compactacao("") == ""
+    assert config_mod.ajustar_prefixo_compactacao("   ") == ""
+    assert config_mod.ajustar_prefixo_compactacao("  nuvem  ") == "nuvem"
+    assert config_mod.ajustar_prefixo_compactacao(None) == ""
+    assert config_mod.ajustar_prefixo_compactacao(42) == ""
+    assert config_mod.ajustar_prefixo_compactacao("a/b") == ""
+    assert config_mod.ajustar_prefixo_compactacao("a\\b") == ""
+    assert config_mod.ajustar_prefixo_compactacao(".") == ""
+    assert config_mod.ajustar_prefixo_compactacao("..") == ""
+
+
+def test_compactacao_prefixo_carregado(home_isolado):
+    config_mod.save(Config(compactacao=CompactacaoConfig(prefixo="nuvem")))
+
+    assert config_mod.load().compactacao.prefixo == "nuvem"
+
+
+def test_compactacao_prefixo_invalido_vira_vazio(home_isolado):
+    config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config_mod.CONFIG_FILE.write_text(
+        json.dumps({"compactacao": {"prefixo": "a/b"}}), encoding="utf-8"
+    )
+
+    assert config_mod.load().compactacao.prefixo == ""
 
 
 def test_compactacao_pasta_padrao_e_a_pasta_acima(tmp_path):
@@ -708,13 +736,18 @@ def test_compactacao_pasta_configurada(tmp_path):
 
 
 def test_compactacao_salva_e_carregada(home_isolado):
-    config = Config(compactacao=CompactacaoConfig(destino="/mnt/c/backups", manter=5))
+    config = Config(
+        compactacao=CompactacaoConfig(
+            destino="/mnt/c/backups", manter=5, prefixo="nuvem"
+        )
+    )
     config_mod.save(config)
 
     carregada = config_mod.load().compactacao
 
     assert carregada.destino == "/mnt/c/backups"
     assert carregada.manter == 5
+    assert carregada.prefixo == "nuvem"
 
 
 def test_compactacao_config_antiga_usa_padrao(home_isolado):
@@ -728,6 +761,7 @@ def test_compactacao_config_antiga_usa_padrao(home_isolado):
 
     assert config.compactacao.destino == ""
     assert config.compactacao.manter == MANTER_PADRAO
+    assert config.compactacao.prefixo == ""
 
 
 def test_compactacao_manter_acima_do_limite_e_limitado(home_isolado):

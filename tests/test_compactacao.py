@@ -22,10 +22,12 @@ def _backup(tmp_path):
     return origem
 
 
-def _config(destino, destino_arquivos="", manter=0) -> Config:
+def _config(destino, destino_arquivos="", manter=0, prefixo="") -> Config:
     return Config(
         backup=BackupConfig(destination=str(destino)),
-        compactacao=CompactacaoConfig(destino=destino_arquivos, manter=manter),
+        compactacao=CompactacaoConfig(
+            destino=destino_arquivos, manter=manter, prefixo=prefixo
+        ),
     )
 
 
@@ -63,6 +65,31 @@ class TestCompactar:
         resultado = compactar(origem, tmp_path / "arquivos", nome="retrato")
 
         assert resultado.arquivo.name.startswith("retrato_")
+
+    def test_prefixo_entra_entre_o_nome_e_a_data(self, tmp_path):
+        origem = _backup(tmp_path)
+
+        resultado = compactar(origem, tmp_path / "arquivos", prefixo="nuvem")
+
+        nome = resultado.arquivo.name
+        assert nome.startswith("bkps_nuvem_")
+        assert nome.endswith(".tar.gz")
+
+    def test_sem_prefixo_mantem_o_padrao(self, tmp_path):
+        origem = _backup(tmp_path)
+
+        resultado = compactar(origem, tmp_path / "arquivos", prefixo="")
+
+        assert resultado.arquivo.name.startswith("bkps_")
+        assert "nuvem" not in resultado.arquivo.name
+
+    def test_prefixo_invalido_e_ignorado(self, tmp_path):
+        origem = _backup(tmp_path)
+
+        resultado = compactar(origem, tmp_path / "arquivos", prefixo="a/b")
+
+        assert resultado.arquivo.name.startswith("bkps_")
+        assert "a/b" not in resultado.arquivo.name
 
     def test_exclui_temporarios(self, tmp_path):
         origem = _backup(tmp_path)
@@ -125,6 +152,20 @@ class TestCompactar:
         assert len(restantes) == 2
         assert "bkps_20200101.tar.gz" not in restantes
         assert "bkps_20200201.tar.gz" not in restantes
+        assert len(resultado.removidos) == 2
+
+    def test_retencao_considera_o_prefixo(self, tmp_path):
+        origem = _backup(tmp_path)
+        destino_dir = tmp_path / "arquivos"
+        destino_dir.mkdir()
+        for data in ("20200101", "20200201", "20200301"):
+            (destino_dir / f"bkps_nuvem_{data}.tar.gz").write_bytes(b"x")
+
+        resultado = compactar(origem, destino_dir, manter=2, prefixo="nuvem")
+
+        restantes = sorted(p.name for p in destino_dir.glob("bkps_*.tar.gz"))
+        assert len(restantes) == 2
+        assert "bkps_nuvem_20200101.tar.gz" not in restantes
         assert len(resultado.removidos) == 2
 
 
@@ -207,6 +248,58 @@ class TestMain:
 
         assert compactacao.main() == 0
         assert list(outro.glob("bkps_*.tar.gz"))
+
+    def test_prefixo_por_config(self, monkeypatch, tmp_path):
+        origem = _backup(tmp_path)
+        destino_dir = tmp_path / "arquivos"
+        monkeypatch.setattr(
+            compactacao,
+            "carregar_configuracao",
+            lambda: _config(origem, str(destino_dir), prefixo="nuvem"),
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-compactar"])
+
+        assert compactacao.main() == 0
+        assert list(destino_dir.glob("bkps_nuvem_*.tar.gz"))
+
+    def test_prefixo_por_opcao_sobrepoe_o_config(self, monkeypatch, tmp_path):
+        origem = _backup(tmp_path)
+        destino_dir = tmp_path / "arquivos"
+        monkeypatch.setattr(
+            compactacao,
+            "carregar_configuracao",
+            lambda: _config(origem, str(destino_dir), prefixo="antigo"),
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-compactar", "--prefixo", "nuvem"])
+
+        assert compactacao.main() == 0
+        assert list(destino_dir.glob("bkps_nuvem_*.tar.gz"))
+        assert not list(destino_dir.glob("bkps_antigo_*.tar.gz"))
+
+    def test_prefixo_vazio_na_opcao_limpa_o_config(self, monkeypatch, tmp_path):
+        origem = _backup(tmp_path)
+        destino_dir = tmp_path / "arquivos"
+        monkeypatch.setattr(
+            compactacao,
+            "carregar_configuracao",
+            lambda: _config(origem, str(destino_dir), prefixo="nuvem"),
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-compactar", "--prefixo", ""])
+
+        assert compactacao.main() == 0
+        arquivos = list(destino_dir.glob("bkps_*.tar.gz"))
+        assert len(arquivos) == 1
+        assert "nuvem" not in arquivos[0].name
+
+    def test_prefixo_invalido_na_opcao_avisa(self, monkeypatch, tmp_path, capsys):
+        origem = _backup(tmp_path)
+        monkeypatch.setattr(
+            compactacao, "carregar_configuracao", lambda: _config(origem)
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-compactar", "--prefixo", "a/b"])
+
+        assert compactacao.main() == 1
+        assert "--prefixo" in capsys.readouterr().err
 
     def test_dry_run_nao_grava(self, monkeypatch, tmp_path, capsys):
         origem = _backup(tmp_path)

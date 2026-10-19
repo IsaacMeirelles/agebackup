@@ -732,6 +732,20 @@ Quantos arquivos compactados ficam guardados.
 Valores fora do intervalo são ajustados ao máximo (60). O nome
 (`<pasta>_AAAAMMDD.tar.gz`) já ordena cronologicamente.
 
+#### `prefixo`
+
+Texto opcional inserido no nome do arquivo, entre a pasta e a data:
+`<pasta>_<prefixo>_AAAAMMDD.tar.gz` (ex.: `bkps_nuvem_20261019.tar.gz`).
+
+| Valor | Efeito |
+| --- | --- |
+| `""` (padrão) | Sem prefixo: `<pasta>_AAAAMMDD.tar.gz` |
+| texto | Acrescenta o texto antes da data |
+
+Valores com separador de caminho (`/`, `\`) ou `..` são ignorados (o prefixo
+entra no nome de um arquivo, não abre pasta). A opção `--prefixo X` sobrepõe o
+valor configurado; `--prefixo ""` limpa.
+
 ### Resumo das opções múltiplas
 
 | Campo | Opções | Padrão |
@@ -745,6 +759,7 @@ Valores fora do intervalo são ajustados ao máximo (60). O nome
 | `logs.directory` | nome de subpasta ou vazio | `logs` |
 | `compactacao.destino` | caminho ou vazio | vazio (pasta acima do backup) |
 | `compactacao.manter` | `0` a `60` | `0` |
+| `compactacao.prefixo` | texto ou vazio | vazio |
 
 ---
 

@@ -597,7 +597,9 @@ uv run agebackup-compactar
   Conteudo : 1732 arquivo(s)
 ```
 
-O nome gerado é `<pasta>_AAAAMMDD.tar.gz`. A gravação é atômica: o
+O nome gerado é `<pasta>_AAAAMMDD.tar.gz`. Um prefixo opcional entra antes da
+data — `<pasta>_<prefixo>_AAAAMMDD.tar.gz` —, útil para marcar a origem da cópia
+(ex.: `bkps_nuvem_20261019.tar.gz`). A gravação é atômica: o
 AgeBackup escreve um `.tmp` e só então renomeia, então uma falha no meio não
 deixa um arquivo pela metade. Os `.tmp` de execuções interrompidas ficam de fora
 do arquivo.
@@ -613,7 +615,8 @@ Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
 ```json
 "compactacao": {
   "destino": "/mnt/c/backups",
-  "manter": 0
+  "manter": 0,
+  "prefixo": ""
 }
 ```
 
@@ -621,6 +624,7 @@ Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
 | --- | --- | --- |
 | `destino` | caminho | Onde gravar (vazio = pasta acima do backup) |
 | `manter` | `0` a `60` | `0` = guardar tudo; N = manter os N mais recentes |
+| `prefixo` | texto | Texto entre a pasta e a data, ex.: `bkps_nuvem_20261019.tar.gz` (vazio = sem prefixo) |
 
 > A pasta de destino **não** pode ficar dentro do backup: senão o próprio
 > arquivo entraria no backup e cresceria a cada execução.
@@ -631,6 +635,7 @@ Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
 uv run agebackup-compactar --dry-run       # mostra o que seria feito, sem gravar
 uv run agebackup-compactar --listar        # lista os arquivos já gerados
 uv run agebackup-compactar --manter 5      # guarda só os 5 mais recentes
+uv run agebackup-compactar --prefixo nuvem # nome vira bkps_nuvem_AAAAMMDD.tar.gz
 uv run agebackup-compactar --destino /mnt/outro-disco
 ```
 

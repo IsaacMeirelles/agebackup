@@ -8,7 +8,9 @@ backup em uma data.
 O comando é separado do backup: rode ``agebackup-compactar`` quando quiser, por
 exemplo depois do backup ou por um agendador.
 
-O nome gerado é ``<pasta>_AAAAMMDD.tar.gz``. A gravação é atômica:
+O nome gerado é ``<pasta>_AAAAMMDD.tar.gz``. Um prefixo opcional (da
+configuração ou de ``--prefixo``) entra antes da data:
+``<pasta>_<prefixo>_AAAAMMDD.tar.gz``. A gravação é atômica:
 escreve um ``.tmp`` e só então renomeia, para não deixar um arquivo pela metade
 se algo falhar no meio.
 
@@ -31,10 +33,10 @@ from agebackup.config import (
     MANTER_MINIMO,
     MANTER_PADRAO,
     ConfigError,
+    ajustar_prefixo_compactacao,
 )
 from agebackup.verificacao import SUFIXO_TMP
 
-PADRAO_ARQUIVO = "{nome}_{data}.tar.gz"
 LIMITE_MOSTRADOS = 20
 
 
@@ -51,6 +53,19 @@ class ResultadoCompactacao:
 
 def _data(momento: datetime) -> str:
     return f"{momento:%Y%m%d}"
+
+
+def _nome_arquivo(base: str, prefixo: str, momento: datetime) -> str:
+    """Monta o nome do arquivo compactado.
+
+    Com prefixo: ``<base>_<prefixo>_AAAAMMDD.tar.gz``. Sem prefixo (vazio):
+    ``<base>_AAAAMMDD.tar.gz``.
+    """
+    partes = [base]
+    if prefixo:
+        partes.append(prefixo)
+    partes.append(_data(momento))
+    return "_".join(partes) + ".tar.gz"
 
 
 def _dentro(caminho: Path, pasta: Path) -> bool:
@@ -114,6 +129,7 @@ def compactar(
     *,
     nome: str | None = None,
     manter: int = MANTER_PADRAO,
+    prefixo: str = "",
     dry_run: bool = False,
 ) -> ResultadoCompactacao:
     """Compacta `origem` em um `.tar.gz` dentro de `destino_dir`.
@@ -124,6 +140,8 @@ def compactar(
             `origem`, senão o próprio arquivo entraria no backup.
         nome: base do nome do arquivo. Padrão: o nome da pasta de origem.
         manter: quantos arquivos guardar. 0 guarda todos.
+        prefixo: texto opcional entre o nome e a data
+            (``<nome>_<prefixo>_AAAAMMDD.tar.gz``). Vazio não muda o nome.
         dry_run: quando True, só calcula o que seria feito.
 
     Returns:
@@ -145,7 +163,8 @@ def compactar(
         return resultado
 
     base = nome or origem.name
-    alvo = destino_dir / PADRAO_ARQUIVO.format(nome=base, data=_data(datetime.now()))
+    prefixo = ajustar_prefixo_compactacao(prefixo)
+    alvo = destino_dir / _nome_arquivo(base, prefixo, datetime.now())
     resultado.itens, resultado.bytes_total = _contar(origem)
 
     if dry_run:
@@ -193,6 +212,7 @@ def _ajuda() -> int:
         "    (sem opcoes)   Compacta o backup em <pasta>_AAAAMMDD.tar.gz\n"
         "    --destino P    Grava em P (padrao: o configurado, ou a pasta acima do backup)\n"
         "    --manter N     Guarda apenas os N arquivos mais recentes (0 = todos)\n"
+        "    --prefixo X    Texto entre a pasta e a data (<pasta>_X_AAAAMMDD.tar.gz)\n"
         "    --listar       Lista os arquivos de compactacao ja gerados\n"
         "    --dry-run      Simula, sem gravar nada\n"
         "    -h, --help     Mostra esta ajuda"
@@ -257,6 +277,17 @@ def main(argv: list[str] | None = None) -> int:
 
     dry_run = "--dry-run" in args
 
+    prefixo = config.compactacao.prefixo
+    prefixo_texto = _valor(args, "--prefixo")
+    if prefixo_texto is not None:
+        prefixo = ajustar_prefixo_compactacao(prefixo_texto)
+        if prefixo_texto.strip() and not prefixo:
+            print(
+                f"  --prefixo invalido (use um nome sem / ou \\): {prefixo_texto!r}",
+                file=sys.stderr,
+            )
+            return 1
+
     if not destino_backup.is_dir():
         print(f"  ERRO: backup nao encontrado em {destino_backup}", file=sys.stderr)
         return 1
@@ -265,9 +296,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Origem   : {destino_backup}")
     print(f"  Destino  : {destino_dir}")
     print(f"  Retencao : {'guardar todos' if manter <= 0 else f'{manter} arquivo(s)'}")
+    if prefixo:
+        print(f"  Prefixo  : {prefixo}")
     print(f"  Modo     : {'simulacao (nada sera gravado)' if dry_run else 'real'}")
 
-    resultado = compactar(destino_backup, destino_dir, manter=manter, dry_run=dry_run)
+    resultado = compactar(
+        destino_backup, destino_dir, manter=manter, prefixo=prefixo, dry_run=dry_run
+    )
 
     if resultado.erro:
         print(f"\n  ERRO: {resultado.erro}", file=sys.stderr)

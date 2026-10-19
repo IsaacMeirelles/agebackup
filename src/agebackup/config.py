@@ -122,11 +122,13 @@ class CompactacaoConfig:
 
     `destino` é a pasta onde os arquivos compactados são gravados (vazio =
     pasta acima do backup). `manter` limita quantos arquivos ficam guardados;
-    0 significa "guardar todos".
+    0 significa "guardar todos". `prefixo`, quando não vazio, entra no nome do
+    arquivo entre a pasta e a data (``<pasta>_<prefixo>_AAAAMMDD.tar.gz``).
     """
 
     destino: str = ""
     manter: int = MANTER_PADRAO
+    prefixo: str = ""
 
     def pasta(self, destino_backup: Path) -> Path:
         """Pasta onde os arquivos compactados são gravados."""
@@ -226,7 +228,7 @@ def _ajustar_retry(dados: dict) -> dict:
 
 
 def _ajustar_compactacao(dados: dict) -> dict:
-    """Normaliza a retenção dos arquivos compactados."""
+    """Normaliza a retenção, o destino e o prefixo dos arquivos compactados."""
     if "manter" in dados:
         try:
             dados["manter"] = max(
@@ -236,7 +238,31 @@ def _ajustar_compactacao(dados: dict) -> dict:
             dados["manter"] = MANTER_PADRAO
     if "destino" in dados and not isinstance(dados["destino"], str):
         dados["destino"] = ""
+    if "prefixo" in dados:
+        dados["prefixo"] = ajustar_prefixo_compactacao(dados["prefixo"])
     return dados
+
+
+def ajustar_prefixo_compactacao(valor: object) -> str:
+    """Sanitiza o prefixo do nome dos arquivos compactados.
+
+    Vazio significa não usar prefixo: o nome volta ao padrão
+    ``<pasta>_AAAAMMDD.tar.gz``. Valores com separador de caminho, `..` ou
+    caractere de controle são ignorados, porque o prefixo entra no nome de um
+    arquivo — não abre pasta nem sai do destino.
+    """
+    if not isinstance(valor, str):
+        return ""
+
+    bruto = valor.strip()
+    if not bruto or bruto in {".", ".."}:
+        return ""
+
+    proibidos = ("/", "\\", "\0")
+    if any(proibido in bruto for proibido in proibidos):
+        return ""
+
+    return bruto
 
 
 def ajustar_pasta_logs(valor: object) -> str:
