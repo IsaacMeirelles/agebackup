@@ -14,9 +14,11 @@ from agebackup.backup import (
 )
 from agebackup.config import Config, ConfigError
 from agebackup.drive import DriveError, get_service
+from agebackup.verificacao import verificar
 
 LIMITE_ERROS_MOSTRADOS = 10
 LIMITE_GRANDES_MOSTRADOS = 20
+LIMITE_CHECK_MOSTRADOS = 10
 
 
 def _link_original(drive_id: str) -> str:
@@ -179,6 +181,7 @@ def _ajuda() -> int:
         "    --listar-grandes  Lista os arquivos grandes que ficaram em PDF\n"
         "    --reconstruir-grandes  Baixa o original/editavel dos grandes ja em PDF\n"
         "    --logs         Mostra os logs e a politica de rotacao\n"
+        "    --check        Verifica a integridade do backup local (offline)\n"
         "    -h, --help     Mostra esta ajuda"
     )
     return 0
@@ -218,6 +221,67 @@ def _reconstruir_grandes() -> int:
     return 1 if falhas else 0
 
 
+def _check() -> int:
+    """Confere manifesto x disco, sem tocar na internet."""
+    try:
+        config = carregar_configuracao()
+    except ConfigError as error:
+        print(f"  {error}", file=sys.stderr)
+        return 1
+
+    destino = Path(config.backup.destination).expanduser()
+    resultado = verificar(destino)
+
+    _titulo("Verificacao do backup")
+    print(f"  Destino    : {destino}")
+    print(
+        "  Manifesto  : "
+        + ("ausente ou ilegivel" if resultado.manifesto_inutilizavel else "ok")
+    )
+    print(f"  Verificados: {resultado.verificados}")
+
+    if resultado.faltando:
+        print(f"\n  Faltando no disco ({len(resultado.faltando)}):")
+        for caminho in resultado.faltando[:LIMITE_CHECK_MOSTRADOS]:
+            print(f"    - {caminho}")
+        if len(resultado.faltando) > LIMITE_CHECK_MOSTRADOS:
+            print(f"    ... e mais {len(resultado.faltando) - LIMITE_CHECK_MOSTRADOS}.")
+
+    if resultado.tamanho_divergente:
+        print(f"\n  Tamanho divergente ({len(resultado.tamanho_divergente)}):")
+        for caminho, esperado, atual in resultado.tamanho_divergente[
+            :LIMITE_CHECK_MOSTRADOS
+        ]:
+            print(f"    - {caminho}  (manifesto {esperado}B, disco {atual}B)")
+        if len(resultado.tamanho_divergente) > LIMITE_CHECK_MOSTRADOS:
+            resto = len(resultado.tamanho_divergente) - LIMITE_CHECK_MOSTRADOS
+            print(f"    ... e mais {resto}.")
+
+    if resultado.tmp_orfaos:
+        print(f"\n  Temporarios residuais ({len(resultado.tmp_orfaos)}):")
+        for caminho in resultado.tmp_orfaos[:LIMITE_CHECK_MOSTRADOS]:
+            print(f"    - {caminho}")
+        print("  (restos de execucoes interrompidas; nao atrapalham o backup)")
+
+    if resultado.fora_do_manifesto:
+        print(f"\n  Fora do manifesto ({len(resultado.fora_do_manifesto)}):")
+        for caminho in resultado.fora_do_manifesto[:LIMITE_CHECK_MOSTRADOS]:
+            print(f"    - {caminho}")
+        if len(resultado.fora_do_manifesto) > LIMITE_CHECK_MOSTRADOS:
+            print(
+                "    ... e mais "
+                f"{len(resultado.fora_do_manifesto) - LIMITE_CHECK_MOSTRADOS}."
+            )
+        print("  (informativo: arquivos que o agebackup nao baixou)")
+
+    print()
+    if resultado.problemas:
+        print("  ERRO: backup incompleto ou conferencia impossivel.")
+        return 1
+    print(f"  OK: {resultado.verificados} arquivo(s) conferido(s).")
+    return 0
+
+
 def main() -> int:
     """Ponto de entrada do backup."""
     args = sys.argv[1:]
@@ -226,6 +290,9 @@ def main() -> int:
 
     if "--help" in args or "-h" in args:
         return _ajuda()
+
+    if "--check" in args:
+        return _check()
 
     if "--falhas" in args:
         try:

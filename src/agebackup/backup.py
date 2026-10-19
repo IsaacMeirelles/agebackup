@@ -29,7 +29,7 @@ from agebackup.drive import (
     file_name,
 )
 from agebackup.falhas import Falha
-from agebackup.manifest import detectar_removidos, registrar_removidos
+from agebackup.manifest import Registro, detectar_removidos, registrar_removidos
 
 # Documentos do Google não existem como blob; precisam de export.
 GOOGLE_WORKSPACE_MIME_PREFIX = "application/vnd.google-apps."
@@ -126,6 +126,9 @@ class Stats:
     total: int = 0
     baixados: int = 0
     ignorados: int = 0
+    # Movidos localmente porque o Drive mudou de nome/pasta e o conteúdo
+    # local ainda conferia (mesma data de modificação).
+    renomeados: int = 0
     falhas: int = 0
     bytes_novos: int = 0
     removidos_na_origem: int = 0
@@ -150,6 +153,9 @@ class Stats:
             f"{self.baixados} {verbos}",
             f"{self.ignorados} inalterados",
         ]
+        if self.renomeados:
+            verbos_move = "a mover" if self.dry_run else "movidos"
+            partes.append(f"{self.renomeados} {verbos_move}")
         if self.removidos_na_origem:
             partes.append(f"{self.removidos_na_origem} removidos na origem")
         if self.removidos_sem_acesso:
@@ -381,6 +387,26 @@ def original_recuperado(pdf: Path) -> bool:
         for sufixo in sufixos
         for extensao in EXTENSOES_RECUPERADAS
     )
+
+
+def companheiras(caminho: Path) -> list[Path]:
+    """Sidecars que podem acompanhar um PDF de reserva, ao lado dele no disco.
+
+    Um nativo grande virou ``Nome.pdf`` e o editável/original pode existir ao
+    lado (``Nome.pptx`` do ``files.download`` ou ``Nome.reconstruido.pptx`` da
+    reconstrução). São os candidatos a mover junto quando o PDF muda de nome
+    ou de pasta. Um nome parecido que conste no manifesto é de outro arquivo do
+    Drive e não deve ser arrastado.
+    """
+    if caminho.suffix.lower() != EXTENSAO_EXPORT.get(FORMATO_FALLBACK, ".pdf"):
+        return []
+    base = _sem_extensao_export(caminho, FORMATO_FALLBACK)
+    sufixos = ("", reconstruir_mod.SUFIXO_RECONSTRUIDO)
+    return [
+        base.with_name(f"{base.name}{sufixo}{extensao}")
+        for sufixo in sufixos
+        for extensao in EXTENSOES_RECUPERADAS
+    ]
 
 
 def pendentes_de_original(destino_raiz: Path, pasta_logs: Path) -> set[str]:
@@ -799,6 +825,42 @@ def reconstruir_pendentes(
     return reconstruidos, falhas
 
 
+def _mover_arquivo(
+    destino_raiz: Path, anterior: str, alvo: Path, registros: dict[str, Registro]
+) -> str:
+    """Move o arquivo local (e os sidecars) para o caminho novo.
+
+    Só é chamado quando o Drive mudou de nome/pasta e o arquivo local ainda
+    confere com a origem: nada é baixado de novo, só reorganizado no disco.
+    Pré-condição do chamador: ``alvo`` está livre (se está ocupado, não se move
+    — ver o bloco "ocupado" em ``executar_backup``). Os sidecars
+    (original/reconstruído ao lado do PDF) movem junto e ganham o novo stem,
+    para continuarem casando com ``original_recuperado``. Um sidecar que consta
+    no manifesto, ou cujo nome novo já exista, é de outro arquivo e fica onde está.
+
+    Returns:
+        Caminho relativo final.
+    """
+    origem = destino_raiz / anterior
+    alvo.parent.mkdir(parents=True, exist_ok=True)
+    os.replace(origem, alvo)
+
+    base_antiga = _sem_extensao_export(origem, FORMATO_FALLBACK)
+    base_nova = _sem_extensao_export(alvo, FORMATO_FALLBACK)
+    for irmã in companheiras(origem):
+        if not irmã.is_file():
+            continue
+        if str(irmã.relative_to(destino_raiz)) in registros:
+            continue
+        resto = irmã.name[len(base_antiga.name) :]
+        destino_irma = base_nova.with_name(f"{base_nova.name}{resto}")
+        if destino_irma.exists():
+            continue
+        os.replace(irmã, destino_irma)
+
+    return str(alvo.relative_to(destino_raiz))
+
+
 def executar_backup(
     service,
     config: Config,
@@ -855,6 +917,53 @@ def executar_backup(
             )
 
             if existente is not None:
+                # Caminho onde o arquivo deve viver nesta execução. Um nativo
+                # grande ficou em PDF (reserva do export que estourou o limite);
+                # enquanto o registro for o PDF, o nome novo também é em PDF —
+                # sem isso a 2ª execução moveria o PDF para a extensão
+                # principal todo run, trocando conteúdo PDF por nome .xlsx.
+                alvo = destino
+                formato = EXPORTABLE.get(entrada.mime_type)
+                ext_fallback = EXTENSAO_EXPORT.get(FORMATO_FALLBACK, ".pdf")
+                if (
+                    formato
+                    and formato != FORMATO_FALLBACK
+                    and anterior
+                    and (destino_raiz / anterior).suffix.lower() == ext_fallback
+                ):
+                    base = _sem_extensao_export(destino, formato)
+                    alvo = base.with_name(base.name + ext_fallback)
+                caminho_novo = str(alvo.relative_to(destino_raiz))
+
+                if anterior and anterior != caminho_novo:
+                    if alvo.exists():
+                        # O nome novo já está ocupado (arquivo seu de outra
+                        # cópia ou sobra antiga). Não sobrescreve e não move
+                        # para um " (1)": enquanto o ocupante existir, o sufixo
+                        # mudaria a cada execução, em vaivém. O registro fica
+                        # onde está; o --check lista o ocupante como informativo.
+                        stats.ignorados += 1
+                        print(f"  ocupado      {anterior}: {caminho_novo} ja existe")
+                        continue
+
+                    # Mudou de nome ou de pasta no Drive e o local ainda vale:
+                    # em vez de deixar a cópia antiga órfã, move para o caminho
+                    # novo e re-chaveia o manifesto, preservando a história.
+                    stats.renomeados += 1
+                    if dry_run:
+                        print(f"  moveria     {anterior} -> {caminho_novo}")
+                    else:
+                        final = _mover_arquivo(destino_raiz, anterior, alvo, registros)
+                        manifest_mod.reenquadrar(
+                            registros,
+                            anterior,
+                            final,
+                            nome=entrada.name,
+                            modificado=entrada.modified_time,
+                        )
+                        print(f"  movido      {anterior} -> {final}")
+                    continue
+
                 stats.ignorados += 1
                 if verbose:
                     print(f"  inalterado  {entrada.name}")

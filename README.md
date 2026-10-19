@@ -14,6 +14,11 @@ automaticamente e os logs giram mensalmente com retenção configurável.
   com ou sem `folder_id` (raiz da conta).
 - **Incremental** — arquivos inalterados não são rebaixados; o manifesto
   `.agebackup-manifest.json` mapeia cada arquivo do Drive ao seu caminho local.
+- **Segue renomeações e movimentações** — quando um arquivo muda de nome ou de
+  pasta no Drive, a cópia local é movida para a nova posição (sem rebaixar) e o
+  manifesto é reenquadrado; a cópia órfã não fica mais para trás.
+- **`--check` de integridade** — confere o backup local contra o manifesto sem
+  tocar na API (faltantes, tamanhos divergentes, temporários e órfãos).
 - **Nunca sobrescreve** — conflitos de nome ganham sufixo numérico; nada
   existente é substituído.
 - **Exportação de documentos Google** — Docs → `.docx`, Planilhas → `.xlsx`,
@@ -71,6 +76,7 @@ Parâmetros úteis de `agebackup-backup`:
 | `--listar-grandes` | Lista os grandes ainda só em PDF (com link) |
 | `--reconstruir-grandes` | Baixa o original/editável dos grandes já em PDF |
 | `--logs` | Mostra os logs e a política de rotação |
+| `--check` | Confere o backup local contra o manifesto (offline, sem API) |
 | `-h`, `--help` | Mostra a ajuda |
 
 A configuração fica em `~/.config/agebackup/config.json` e o assistente
@@ -114,7 +120,7 @@ destino/
 ## Desenvolvimento
 
 ```bash
-uv run python -m pytest   # 323 testes (nenhum chama a API real)
+uv run python -m pytest   # 350 testes (nenhum chama a API real)
 uv run black .            # formatação
 uv run ruff check .       # lint
 ./packaging/build.sh      # executáveis autônomos (ver packaging/README.md)
@@ -125,13 +131,13 @@ de rede nos testes.
 
 ## Roadmap
 
-> **Planejado, ainda não implementado.** Os itens abaixo **não existem** no
-> código atual — esta seção é a lista do que vem a seguir.
+> **Fase B concluída.** A tabela abaixo lista as fases restantes — os itens
+> marcados como pendentes **não existem** no código atual.
 
 | Fase | O que traz |
 | --- | --- |
+| ~~**B**~~ | **Concluída:** detecção de renomeações/movimentações via manifesto (sem cópia órfã no nome antigo) + `--check` — verificação offline de integridade |
 | **A** | CLI com `argparse` (flag inválida vira erro, em vez de cair no fluxo do backup; `--version`) + CI no GitHub Actions (ruff, black, pytest) |
-| **B** | Detecção de renomeações/movimentações via manifesto (para de deixar cópia órfã no nome antigo) + `--check` — verificação offline de integridade do backup |
 | **C** | Downloads paralelos com `--workers` (padrão 4) e progresso/ETA por arquivo |
 | **D** | Suíte opt-in contra a API real (`pytest -m real`, com credenciais) |
 

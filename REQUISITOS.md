@@ -779,10 +779,13 @@ rebaixa o que mudou.
 | `--listar-grandes` | Lista os grandes que ainda estão só em PDF (esconde os já recuperados) |
 | `--reconstruir-grandes` | Baixa o original/editável dos grandes já em PDF (`files.download`; reconstrução nativa como reserva) |
 | `--logs` | Mostra os logs, a política e os comprimidos |
+| `--check` | Confere o backup local contra o manifesto, sem tocar na API |
 | `-h`, `--help` | Mostra a ajuda |
 
 **Código de saída:** `0` se tudo deu certo, `1` se houve falha (ver
-[seção 11](#11-limitações-conhecidas)).
+[seção 11](#11-limitações-conhecidas)). Com `--check`, `1` significa erro de
+integridade (arquivo faltando ou tamanho divergente); avisos isolados
+(temporários órfãos, arquivos não constantes no manifesto) saem com `0`.
 
 ---
 
@@ -994,6 +997,7 @@ Detalhes que importam:
 | `uv run agebackup-backup --listar-grandes` | Grandes ainda só em PDF (com link) |
 | `uv run agebackup-backup --reconstruir-grandes` | Baixa o original dos grandes já em PDF |
 | `uv run agebackup-backup --logs` | Logs e política de rotação |
+| `uv run agebackup-backup --check` | Verifica integridade do backup local (offline) |
 
 ---
 
@@ -1089,12 +1093,12 @@ Seja claro sobre o que **não** funciona:
 | **Não apaga arquivos locais** | Só registra a remoção no log |
 | **Não baixa versões anteriores** | Só a versão atual de cada arquivo |
 | **Não agenda sozinho** | Use cron |
-| **Não renomeia/move locais** | Se um arquivo muda de nome ou de pasta no Drive, o AgeBackup grava uma cópia nova; não remove a antiga |
+| **Não apaga a cópia antiga em renomeação com conteúdo alterado** | Se um arquivo muda de nome **e** de conteúdo, o AgeBackup baixa a nova versão no lugar novo e a cópia antiga fica no disco (não apaga nada localmente); o `--check` a lista como fora do manifesto. Renomeação ou mudança de pasta sem mudança de conteúdo é resolvida movendo a cópia local, sem rebaixar |
 | **Testes usam servidor emulado** | A suíte automatizada roda contra um servidor HTTP local; o caminho real já foi verificado manualmente com uma conta somente-leitura |
 
 ### Sobre a última limitação
 
-Isto é importante: o código está coberto por **323 testes** que rodam contra um
+Isto é importante: o código está coberto por **350 testes** que rodam contra um
 servidor HTTP local emulado, reproduzindo o comportamento da API. O caminho
 real já foi exercitado manualmente (leitura somente, com uma Service Account),
 mas não é coberto pela suíte automatizada.
@@ -1143,9 +1147,10 @@ por padrão (sem fallback de rede). Detalhes em
 │   ├── manifest.py    # manifesto e log de remoções
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação mensal e retenção
-│   └── setup.py       # tela de configuração
+│   ├── setup.py       # tela de configuração
+│   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executável autônomo (PyInstaller)
-├── tests/             # 323 testes
+├── tests/             # 350 testes
 ├── USERGUIDE.md        # guia do usuário
 └── .opencode/skills/  # documentação de referência da API
 ```

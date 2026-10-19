@@ -117,6 +117,29 @@ def registrar(
     )
 
 
+def reenquadrar(
+    registros: dict[str, Registro],
+    antigo: str,
+    novo: str,
+    *,
+    nome: str,
+    modificado: str,
+) -> None:
+    """Move uma entrada do manifesto para outro caminho, preservando a história.
+
+    Usado quando o arquivo mudou de nome ou de pasta no Drive mas o conteúdo
+    local continua válido: o registro é o mesmo (inclusive o ``baixado_em``
+    original), só o caminho é atualizado. Se ``novo`` já estiver ocupado por
+    outra entrada cujo arquivo local não existe mais, a entrada nova prevalece.
+    """
+    registro = registros.pop(antigo, None)
+    if registro is None:
+        return
+    registro.nome = nome
+    registro.modificado = modificado
+    registros[novo] = registro
+
+
 def _arquivos_locais(destino: Path) -> set[str]:
     """Lista os arquivos do destino, ignorando os arquivos internos do AgeBackup."""
     encontrados: set[str] = set()

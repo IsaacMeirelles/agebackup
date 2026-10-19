@@ -224,3 +224,87 @@ class TestReconstruirGrandes:
         cli.main()
 
         assert "--reconstruir-grandes" in capsys.readouterr().out
+
+
+class TestCheck:
+    def _resultado(self, **campos):
+        from agebackup.verificacao import ResultadoCheck
+
+        return ResultadoCheck(**campos)
+
+    def test_despacha_check_com_config_real(self, monkeypatch, tmp_path, capsys):
+        # Destino sem manifesto: a conferencia real acusa erro.
+        monkeypatch.setattr(
+            cli, "carregar_configuracao", lambda: _config(tmp_path / "backup")
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-backup", "--check"])
+
+        codigo = cli.main()
+
+        assert codigo == 1
+        saida = capsys.readouterr().out
+        assert "Verificacao do backup" in saida
+        assert "ausente ou ilegivel" in saida
+
+    def test_ok_retorna_zero(self, monkeypatch, tmp_path, capsys):
+        chamado = {}
+
+        def falso_verificar(destino):
+            chamado["destino"] = destino
+            return self._resultado(verificados=3)
+
+        monkeypatch.setattr(
+            cli, "carregar_configuracao", lambda: _config(tmp_path / "backup")
+        )
+        monkeypatch.setattr(cli, "verificar", falso_verificar)
+        monkeypatch.setattr("sys.argv", ["agebackup-backup", "--check"])
+
+        codigo = cli.main()
+
+        assert codigo == 0
+        assert "OK: 3 arquivo(s) conferido(s)." in capsys.readouterr().out
+        assert chamado["destino"] == tmp_path / "backup"
+
+    def test_faltando_retorna_um_e_lista(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr(
+            cli, "carregar_configuracao", lambda: _config(tmp_path / "backup")
+        )
+        monkeypatch.setattr(
+            cli,
+            "verificar",
+            lambda destino: self._resultado(verificados=2, faltando=["docs/a.txt"]),
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-backup", "--check"])
+
+        codigo = cli.main()
+
+        assert codigo == 1
+        saida = capsys.readouterr().out
+        assert "Faltando no disco (1):" in saida
+        assert "docs/a.txt" in saida
+        assert "ERRO" in saida
+
+    def test_temporarios_sao_aviso_nao_erro(self, monkeypatch, tmp_path, capsys):
+        monkeypatch.setattr(
+            cli, "carregar_configuracao", lambda: _config(tmp_path / "backup")
+        )
+        monkeypatch.setattr(
+            cli,
+            "verificar",
+            lambda destino: self._resultado(verificados=1, tmp_orfaos=["parcial.tmp"]),
+        )
+        monkeypatch.setattr("sys.argv", ["agebackup-backup", "--check"])
+
+        codigo = cli.main()
+
+        assert codigo == 0
+        saida = capsys.readouterr().out
+        assert "Temporarios residuais (1):" in saida
+        assert "parcial.tmp" in saida
+
+    def test_ajuda_mostra_check(self, monkeypatch, capsys):
+        monkeypatch.setattr("sys.argv", ["agebackup-backup", "--help"])
+
+        cli.main()
+
+        assert "--check" in capsys.readouterr().out

@@ -172,10 +172,13 @@ Saída típica:
 | `--listar-grandes` | Lista os grandes que ainda estão só em PDF (esconde os já recuperados) |
 | `--reconstruir-grandes` | Baixa o original/editável dos grandes já salvos em PDF |
 | `--logs` | Lista os logs e os arquivos comprimidos |
+| `--check` | Confere o backup local contra o manifesto, sem tocar na API |
 | `--help` | Mostra a ajuda do comando |
 
 O comando retorna **código de saída 1** se algum arquivo falhou, 0 caso
-contrário — útil para agendar com cron.
+contrário — útil para agendar com cron. O `--check` retorna 1 só para erros
+de integridade (arquivo faltando ou tamanho divergente); avisos isolados
+saem com 0.
 
 ---
 
@@ -609,12 +612,17 @@ tail -20 ~/agebackup-backup.log
 - **Registra em log os arquivos locais que sumiram do Drive** (sem apagá-los)
 - **Registra em log os arquivos que não conseguiu baixar**, com a categoria
   da falha (bloqueado, permissão, temporária, erro local...)
+- **Move a cópia local quando o Drive renomeia ou move um arquivo** (sem
+  rebaixar, desde que o conteúdo não tenha mudado); o manifesto é atualizado
+  para o caminho novo
 - **Comprime os logs antigos automaticamente** quando o mês vira
 
 **Não faz (ainda):**
 
 - **Não sincroniza de volta** — é somente leitura
-- **Não apaga** arquivos locais: apenas registra a remoção no log
+- **Não apaga** arquivos locais: apenas registra a remoção no log (mesmo
+  quando o Drive renomeia e o conteúdo mudou junto, a cópia antiga fica —
+  o `--check` a lista como fora do manifesto)
 - **Não baixa versões anteriores** de arquivos
 - **Não agenda sozinho** — use cron
 
@@ -735,6 +743,7 @@ uv run agebackup-backup --falhas  # ver falhas registradas
 uv run agebackup-backup --listar-grandes  # originais grandes guardados em PDF
 uv run agebackup-backup --reconstruir-grandes  # baixa o original dos pendentes
 uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
+uv run agebackup-backup --check   # conferir integridade (offline)
 ```
 
 > Para rodar **sem Python** (`uv`), gere os executáveis autônomos com
@@ -754,9 +763,10 @@ uv run agebackup-backup --logs    # ver logs e arquivos comprimidos
 │   ├── manifest.py    # manifesto e log de remoções
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação mensal e retenção dos logs
-│   └── setup.py       # tela de configuração
+│   ├── setup.py       # tela de configuração
+│   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executável autônomo (PyInstaller)
-├── tests/             # 323 testes
+├── tests/             # 350 testes
 └── .opencode/skills/  # documentação de referência
 ```
 

@@ -77,6 +77,51 @@ def test_registrar_cria_entrada(tmp_path):
     assert registros["sub/a.pdf"].drive_id == "F1"
 
 
+def test_reenquadrar_move_a_entrada_preservando_historico():
+    registros: dict = {}
+    manifest.registrar(
+        registros, "velho/a.pdf", "F1", "a.pdf", 100, "2026-01-01T10:00:00Z"
+    )
+    baixado_em = registros["velho/a.pdf"].baixado_em
+
+    manifest.reenquadrar(
+        registros,
+        "velho/a.pdf",
+        "novo/b.pdf",
+        nome="b.pdf",
+        modificado="2026-02-02T10:00:00Z",
+    )
+
+    assert "velho/a.pdf" not in registros
+    registro = registros["novo/b.pdf"]
+    assert registro.drive_id == "F1"
+    assert registro.tamanho == 100
+    # A data do primeiro download é história: não se perde no renome.
+    assert registro.baixado_em == baixado_em
+    assert registro.nome == "b.pdf"
+    assert registro.modificado == "2026-02-02T10:00:00Z"
+
+
+def test_reenquadrar_sem_entrada_antiga_nao_faz_nada():
+    registros: dict = {}
+
+    manifest.reenquadrar(
+        registros, "nao/existe.pdf", "novo.pdf", nome="x", modificado="y"
+    )
+
+    assert registros == {}
+
+
+def test_reenquadrar_substitui_entrada_obsoleta_no_destino():
+    registros = {"antigo.pdf": _registro("F1"), "novo.pdf": _registro("F2")}
+
+    manifest.reenquadrar(registros, "antigo.pdf", "novo.pdf", nome="n", modificado="m")
+
+    # O arquivo de F2 não existe mais no destino; a entrada de F1 assume o lugar.
+    assert list(registros) == ["novo.pdf"]
+    assert registros["novo.pdf"].drive_id == "F1"
+
+
 def test_detecta_removido(tmp_path):
     (tmp_path / "a.pdf").write_bytes(b"x")
     registros = {"a.pdf": _registro("F1")}

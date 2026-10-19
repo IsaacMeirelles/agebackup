@@ -15,6 +15,7 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 
 from agebackup import falhas as falhas_mod
+from agebackup import manifest as manifest_mod
 from agebackup import reconstruir as reconstruir_mod
 from agebackup.backup import (
     EXPORTABLE,
@@ -23,6 +24,7 @@ from agebackup.backup import (
     _destino_existente,
     _eh_pasta,
     _formatar_bytes,
+    _mover_arquivo,
     executar_backup,
     listar_arquivos,
 )
@@ -340,6 +342,188 @@ def test_backup_redownload_quando_modificado(service, config, tmp_path):
     assert stats.baixados == 1
 
 
+def test_backup_move_quando_renomeado_no_drive(service, config, tmp_path, capsys):
+    _FakeDrive.arquivos = [_arquivo()]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    _FakeDrive.arquivos = [_arquivo(nome="renomeado.txt")]
+    stats = executar_backup(service, config, destino)
+
+    assert stats.renomeados == 1
+    assert stats.baixados == 0
+    assert not (destino / "doc.txt").exists()
+    assert (destino / "renomeado.txt").read_bytes() == CONTEUDO
+    assert list(manifest_mod.carregar(destino)) == ["renomeado.txt"]
+    assert "movido" in capsys.readouterr().out
+
+
+def test_backup_move_quando_mudou_de_pasta(service, config, tmp_path):
+    _FakeDrive.arquivos = [_pasta("P1", "Docs"), _arquivo(parents=["P1"])]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    _FakeDrive.arquivos = [_pasta("P1", "Arquivos"), _arquivo(parents=["P1"])]
+    stats = executar_backup(service, config, destino)
+
+    assert stats.renomeados == 1
+    assert stats.baixados == 0
+    assert not (destino / "Docs" / "doc.txt").exists()
+    assert (destino / "Arquivos" / "doc.txt").read_bytes() == CONTEUDO
+    assert list(manifest_mod.carregar(destino)) == ["Arquivos/doc.txt"]
+
+
+def test_backup_dry_run_move_so_reporta(service, config, tmp_path, capsys):
+    _FakeDrive.arquivos = [_arquivo()]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    _FakeDrive.arquivos = [_arquivo(nome="renomeado.txt")]
+    stats = executar_backup(service, config, destino, dry_run=True)
+
+    assert stats.renomeados == 1
+    assert stats.baixados == 0
+    # Simulacao: nada muda no disco nem no manifesto.
+    assert (destino / "doc.txt").exists()
+    assert not (destino / "renomeado.txt").exists()
+    assert list(manifest_mod.carregar(destino)) == ["doc.txt"]
+    assert "moveria" in capsys.readouterr().out
+
+
+def test_backup_nao_move_quando_destino_ocupado(service, config, tmp_path, capsys):
+    _FakeDrive.arquivos = [_arquivo()]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    # Ja existe um arquivo diferente com o nome novo: nao pode ser sobrescrito
+    # nem empurrado para um "(1)", que viraria vaivem a cada execucao.
+    (destino / "renomeado.txt").write_bytes(b"de outra pessoa")
+
+    _FakeDrive.arquivos = [_arquivo(nome="renomeado.txt")]
+    stats = executar_backup(service, config, destino)
+
+    assert stats.renomeados == 0
+    assert stats.ignorados == 1
+    assert stats.baixados == 0
+    assert (destino / "renomeado.txt").read_bytes() == b"de outra pessoa"
+    assert (destino / "doc.txt").read_bytes() == CONTEUDO
+    assert list(manifest_mod.carregar(destino)) == ["doc.txt"]
+    assert "ocupado" in capsys.readouterr().out
+
+    # Estavel: repetir nao muda nada.
+    terceira = executar_backup(service, config, destino)
+    assert terceira.renomeados == 0
+    assert terceira.baixados == 0
+
+
+def test_backup_renome_conteudo_mudou_baixa_e_deixa_orfao(service, config, tmp_path):
+    _FakeDrive.arquivos = [_arquivo()]
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+
+    _FakeDrive.arquivos = [_arquivo(nome="novo.txt", modifiedTime=_quando(600))]
+    stats = executar_backup(service, config, destino)
+
+    # Conteudo mudou: nao da para so mover; baixa de novo. Filosofia "nunca
+    # apaga": a copia antiga fica onde esta (o --check a lista como informativa).
+    assert stats.baixados == 1
+    assert stats.renomeados == 0
+    assert (destino / "novo.txt").exists()
+    assert (destino / "doc.txt").exists()
+    assert list(manifest_mod.carregar(destino)) == ["novo.txt"]
+
+
+def test_backup_move_grande_em_pdf_mantendo_reserva(service, config, tmp_path):
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "D1",
+            "planilha",
+            mimeType="application/vnd.google-apps.spreadsheet",
+            size=str(15 * 1024 * 1024),
+        )
+    ]
+    _FakeDrive.exportar_grande = {EXPORTABLE["application/vnd.google-apps.spreadsheet"]}
+    destino = tmp_path / "backup"
+    executar_backup(service, config, destino)
+    assert (destino / "planilha.pdf").exists()
+
+    # Renomeou no Drive: move, mas continua em PDF (e o registro nao vira .xlsx).
+    _FakeDrive.arquivos = [
+        _arquivo(
+            "D1",
+            "planilha-renomeada",
+            mimeType="application/vnd.google-apps.spreadsheet",
+            size=str(15 * 1024 * 1024),
+        )
+    ]
+    stats = executar_backup(service, config, destino)
+
+    assert stats.renomeados == 1
+    assert stats.baixados == 0
+    assert (destino / "planilha-renomeada.pdf").exists()
+    assert not (destino / "planilha.pdf").exists()
+    assert not (destino / "planilha-renomeada.xlsx").exists()
+    assert list(manifest_mod.carregar(destino)) == ["planilha-renomeada.pdf"]
+
+    # Terceira execucao: estavel, sem mover nada de novo.
+    terceira = executar_backup(service, config, destino)
+    assert terceira.ignorados == 1
+    assert terceira.renomeados == 0
+
+
+def test_mover_arquivo_move_sidecars_com_novo_stem(tmp_path):
+    destino = tmp_path / "backup"
+    (destino / "sub").mkdir(parents=True)
+    (destino / "sub" / "Grande.pdf").write_bytes(b"%PDF")
+    (destino / "sub" / "Grande.reconstruido.pptx").write_bytes(b"PK")
+
+    final = _mover_arquivo(
+        destino,
+        "sub/Grande.pdf",
+        destino / "sub" / "Apresentacao.pdf",
+        registros={},
+    )
+
+    assert final == "sub/Apresentacao.pdf"
+    assert (destino / "sub" / "Apresentacao.pdf").read_bytes() == b"%PDF"
+    # Ganha o stem novo, para original_recuperado continuar casando.
+    assert (destino / "sub" / "Apresentacao.reconstruido.pptx").read_bytes() == b"PK"
+    assert not (destino / "sub" / "Grande.pdf").exists()
+    assert not (destino / "sub" / "Grande.reconstruido.pptx").exists()
+
+
+def test_mover_arquivo_nao_arrasta_sidecar_registrado(tmp_path):
+    destino = tmp_path / "backup"
+    destino.mkdir(parents=True)
+    (destino / "Grande.pdf").write_bytes(b"%PDF")
+    (destino / "Grande.reconstruido.pptx").write_bytes(b"meu")
+    # Nome igual, mas e outro arquivo do Drive (consta no manifesto).
+    (destino / "Grande.pptx").write_bytes(b"outro")
+    registros = {
+        "Grande.pdf": manifest_mod.Registro(
+            drive_id="G1",
+            nome="Grande",
+            tamanho=4,
+            modificado="2026-01-01T10:00:00Z",
+            baixado_em="2026-01-01T10:00:00Z",
+        ),
+        "Grande.pptx": manifest_mod.Registro(
+            drive_id="O1",
+            nome="Grande.pptx",
+            tamanho=5,
+            modificado="2026-01-01T10:00:00Z",
+            baixado_em="2026-01-01T10:00:00Z",
+        ),
+    }
+
+    final = _mover_arquivo(destino, "Grande.pdf", destino / "Nova.pdf", registros)
+
+    assert final == "Nova.pdf"
+    assert (destino / "Nova.pdf").read_bytes() == b"%PDF"
+    assert (destino / "Nova.reconstruido.pptx").read_bytes() == b"meu"
+    assert (destino / "Grande.pptx").read_bytes() == b"outro"
+
+
 def test_backup_pula_pastas(service, config, tmp_path):
     _FakeDrive.arquivos = [
         _arquivo(nome="minha-pasta", mimeType="application/vnd.google-apps.folder")
@@ -450,6 +634,14 @@ def test_stats_resumo_sem_falhas():
 
 def test_stats_resumo_inclui_falhas():
     assert "1 falhas" in Stats(total=1, falhas=1).resumo()
+
+
+def test_stats_resumo_inclui_movidos():
+    assert "2 movidos" in Stats(total=5, renomeados=2).resumo()
+
+
+def test_stats_resumo_movidos_no_dry_run():
+    assert "1 a mover" in Stats(total=1, renomeados=1, dry_run=True).resumo()
 
 
 def test_formatar_bytes():
