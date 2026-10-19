@@ -730,7 +730,7 @@ Quantos arquivos compactados ficam guardados.
 | `1` a `60` | Mantém só os N mais recentes; os demais são apagados |
 
 Valores fora do intervalo são ajustados ao máximo (60). O nome
-(`<pasta>-AAAAMMDD-HHMMSS.tar.gz`) já ordena cronologicamente.
+(`<pasta>_AAAAMMDD.tar.gz`) já ordena cronologicamente.
 
 ### Resumo das opções múltiplas
 
@@ -835,7 +835,7 @@ O backup em si é uma pasta. Para guardar um retrato datado (em outro disco ou n
 nuvem), o comando `agebackup-compactar` junta tudo em um único `.tar.gz`:
 
 ```sh
-uv run agebackup-compactar          # gera <pasta>-AAAAMMDD-HHMMSS.tar.gz
+uv run agebackup-compactar          # gera <pasta>_AAAAMMDD.tar.gz
 uv run agebackup-compactar --listar # lista os arquivos gerados
 ```
 

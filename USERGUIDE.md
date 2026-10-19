@@ -592,12 +592,12 @@ uv run agebackup-compactar
   Retencao : guardar todos
   Modo     : real
 
-  Arquivo  : /mnt/c/backups/bkps-20261019-163509.tar.gz
+  Arquivo  : /mnt/c/backups/bkps_20261019.tar.gz
   Tamanho  : 727.7 MB
   Conteudo : 1732 arquivo(s)
 ```
 
-O nome gerado é `<pasta>-AAAAMMDD-HHMMSS.tar.gz`. A gravação é atômica: o
+O nome gerado é `<pasta>_AAAAMMDD.tar.gz`. A gravação é atômica: o
 AgeBackup escreve um `.tmp` e só então renomeia, então uma falha no meio não
 deixa um arquivo pela metade. Os `.tmp` de execuções interrompidas ficam de fora
 do arquivo.

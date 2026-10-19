@@ -39,7 +39,7 @@ class TestCompactar:
         assert resultado.erro == ""
         assert resultado.arquivo is not None
         assert resultado.arquivo.parent == destino_dir
-        assert resultado.arquivo.name.startswith("bkps-")
+        assert resultado.arquivo.name.startswith("bkps_")
         assert resultado.arquivo.suffixes == [".tar", ".gz"]
         assert resultado.arquivo.exists()
         assert resultado.itens == 3
@@ -62,7 +62,7 @@ class TestCompactar:
 
         resultado = compactar(origem, tmp_path / "arquivos", nome="retrato")
 
-        assert resultado.arquivo.name.startswith("retrato-")
+        assert resultado.arquivo.name.startswith("retrato_")
 
     def test_exclui_temporarios(self, tmp_path):
         origem = _backup(tmp_path)
@@ -105,26 +105,26 @@ class TestCompactar:
         origem = _backup(tmp_path)
         destino_dir = tmp_path / "arquivos"
         destino_dir.mkdir()
-        for stamp in ("20260101-000000", "20260201-000000"):
-            (destino_dir / f"bkps-{stamp}.tar.gz").write_bytes(b"x")
+        for data in ("20200101", "20200201"):
+            (destino_dir / f"bkps_{data}.tar.gz").write_bytes(b"x")
 
         compactar(origem, destino_dir, manter=0)
 
-        assert len(list(destino_dir.glob("bkps-*.tar.gz"))) == 3
+        assert len(list(destino_dir.glob("bkps_*.tar.gz"))) == 3
 
     def test_retencao_apaga_os_mais_antigos(self, tmp_path):
         origem = _backup(tmp_path)
         destino_dir = tmp_path / "arquivos"
         destino_dir.mkdir()
-        for stamp in ("20260101-000000", "20260201-000000", "20260301-000000"):
-            (destino_dir / f"bkps-{stamp}.tar.gz").write_bytes(b"x")
+        for data in ("20200101", "20200201", "20200301"):
+            (destino_dir / f"bkps_{data}.tar.gz").write_bytes(b"x")
 
         resultado = compactar(origem, destino_dir, manter=2)
 
-        restantes = sorted(p.name for p in destino_dir.glob("bkps-*.tar.gz"))
+        restantes = sorted(p.name for p in destino_dir.glob("bkps_*.tar.gz"))
         assert len(restantes) == 2
-        assert "bkps-20260101-000000.tar.gz" not in restantes
-        assert "bkps-20260201-000000.tar.gz" not in restantes
+        assert "bkps_20200101.tar.gz" not in restantes
+        assert "bkps_20200201.tar.gz" not in restantes
         assert len(resultado.removidos) == 2
 
 
@@ -132,15 +132,15 @@ class TestListar:
     def test_lista_do_mais_recente_ao_mais_antigo(self, tmp_path, capsys):
         destino_dir = tmp_path / "arquivos"
         destino_dir.mkdir()
-        for stamp in ("20260101-000000", "20260301-000000"):
-            (destino_dir / f"bkps-{stamp}.tar.gz").write_bytes(b"x")
+        for data in ("20200101", "20200301"):
+            (destino_dir / f"bkps_{data}.tar.gz").write_bytes(b"x")
 
         compactacao._listar(
             _config(tmp_path / "bkps", str(destino_dir)), tmp_path / "bkps"
         )
 
         saida = capsys.readouterr().out
-        assert saida.index("20260301") < saida.index("20260101")
+        assert saida.index("20200301") < saida.index("20200101")
 
     def test_vazio_avisa(self, tmp_path, capsys):
         compactacao._listar(
@@ -183,7 +183,7 @@ class TestMain:
 
         assert codigo == 0
         assert "Compactar backup" in capsys.readouterr().out
-        assert list(destino_dir.glob("bkps-*.tar.gz"))
+        assert list(destino_dir.glob("bkps_*.tar.gz"))
 
     def test_destino_padrao_e_a_pasta_acima(self, monkeypatch, tmp_path):
         origem = _backup(tmp_path)  # tmp_path/bkps
@@ -193,7 +193,7 @@ class TestMain:
         monkeypatch.setattr("sys.argv", ["agebackup-compactar"])
 
         assert compactacao.main() == 0
-        assert list(tmp_path.glob("bkps-*.tar.gz"))
+        assert list(tmp_path.glob("bkps_*.tar.gz"))
 
     def test_destino_por_opcao(self, monkeypatch, tmp_path):
         origem = _backup(tmp_path)
@@ -206,7 +206,7 @@ class TestMain:
         )
 
         assert compactacao.main() == 0
-        assert list(outro.glob("bkps-*.tar.gz"))
+        assert list(outro.glob("bkps_*.tar.gz"))
 
     def test_dry_run_nao_grava(self, monkeypatch, tmp_path, capsys):
         origem = _backup(tmp_path)
@@ -236,7 +236,7 @@ class TestMain:
         origem = _backup(tmp_path)
         destino_dir = tmp_path / "arquivos"
         destino_dir.mkdir()
-        (destino_dir / "bkps-20260101-000000.tar.gz").write_bytes(b"x")
+        (destino_dir / "bkps_20200101.tar.gz").write_bytes(b"x")
         monkeypatch.setattr(
             compactacao,
             "carregar_configuracao",
@@ -245,7 +245,7 @@ class TestMain:
         monkeypatch.setattr("sys.argv", ["agebackup-compactar", "--listar"])
 
         assert compactacao.main() == 0
-        assert "bkps-20260101-000000.tar.gz" in capsys.readouterr().out
+        assert "bkps_20200101.tar.gz" in capsys.readouterr().out
 
     def test_backup_ausente_avisa(self, monkeypatch, tmp_path, capsys):
         monkeypatch.setattr(

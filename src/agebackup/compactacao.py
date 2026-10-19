@@ -8,7 +8,7 @@ backup em uma data.
 O comando é separado do backup: rode ``agebackup-compactar`` quando quiser, por
 exemplo depois do backup ou por um agendador.
 
-O nome gerado é ``<pasta>-AAAAMMDD-HHMMSS.tar.gz``. A gravação é atômica:
+O nome gerado é ``<pasta>_AAAAMMDD.tar.gz``. A gravação é atômica:
 escreve um ``.tmp`` e só então renomeia, para não deixar um arquivo pela metade
 se algo falhar no meio.
 
@@ -34,7 +34,7 @@ from agebackup.config import (
 )
 from agebackup.verificacao import SUFIXO_TMP
 
-PADRAO_ARQUIVO = "{nome}-{stamp}.tar.gz"
+PADRAO_ARQUIVO = "{nome}_{data}.tar.gz"
 LIMITE_MOSTRADOS = 20
 
 
@@ -49,8 +49,8 @@ class ResultadoCompactacao:
     erro: str = ""
 
 
-def _stamp(momento: datetime) -> str:
-    return f"{momento:%Y%m%d-%H%M%S}"
+def _data(momento: datetime) -> str:
+    return f"{momento:%Y%m%d}"
 
 
 def _dentro(caminho: Path, pasta: Path) -> bool:
@@ -85,13 +85,13 @@ def _sem_temporarios(info: tarfile.TarInfo) -> tarfile.TarInfo | None:
 def _aplicar_retencao(destino_dir: Path, base: str, manter: int) -> list[Path]:
     """Apaga os arquivos mais antigos, mantendo os `manter` mais recentes.
 
-    `manter = 0` significa guardar todos: nada é removido. O nome inclui o
-    carimbo de data-hora, então a ordem alfabética já é a ordem cronológica.
+    `manter = 0` significa guardar todos: nada é removido. O nome inclui a data
+    (AAAAMMDD), então a ordem alfabética já é a ordem cronológica.
     """
     if manter <= 0:
         return []
 
-    arquivos = sorted(destino_dir.glob(f"{base}-*.tar.gz"))
+    arquivos = sorted(destino_dir.glob(f"{base}_*.tar.gz"))
     removidos: list[Path] = []
     for antigo in arquivos[: max(0, len(arquivos) - manter)]:
         try:
@@ -104,7 +104,7 @@ def _aplicar_retencao(destino_dir: Path, base: str, manter: int) -> list[Path]:
 
 def arquivos_compactados(destino_dir: Path, base: str | None = None) -> list[Path]:
     """Lista os arquivos compactados, do mais recente para o mais antigo."""
-    padrao = f"{base}-*.tar.gz" if base else "*.tar.gz"
+    padrao = f"{base}_*.tar.gz" if base else "*.tar.gz"
     return sorted(destino_dir.glob(padrao), reverse=True)
 
 
@@ -145,7 +145,7 @@ def compactar(
         return resultado
 
     base = nome or origem.name
-    alvo = destino_dir / PADRAO_ARQUIVO.format(nome=base, stamp=_stamp(datetime.now()))
+    alvo = destino_dir / PADRAO_ARQUIVO.format(nome=base, data=_data(datetime.now()))
     resultado.itens, resultado.bytes_total = _contar(origem)
 
     if dry_run:
@@ -190,7 +190,7 @@ def _ajuda() -> int:
     _titulo("agebackup-compactar - ajuda")
     print(
         "  Uso: agebackup-compactar [opcoes]\n\n"
-        "    (sem opcoes)   Compacta o backup em <pasta>-AAAAMMDD-HHMMSS.tar.gz\n"
+        "    (sem opcoes)   Compacta o backup em <pasta>_AAAAMMDD.tar.gz\n"
         "    --destino P    Grava em P (padrao: o configurado, ou a pasta acima do backup)\n"
         "    --manter N     Guarda apenas os N arquivos mais recentes (0 = todos)\n"
         "    --listar       Lista os arquivos de compactacao ja gerados\n"

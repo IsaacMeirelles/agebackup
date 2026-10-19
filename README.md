@@ -93,7 +93,7 @@ Parâmetros úteis de `agebackup-compactar`:
 | `--dry-run` | Simula, sem gravar |
 | `-h`, `--help` | Mostra a ajuda |
 
-O nome gerado é `<pasta>-AAAAMMDD-HHMMSS.tar.gz` e a gravação é atômica
+O nome gerado é `<pasta>_AAAAMMDD.tar.gz` e a gravação é atômica
 (escreve um `.tmp` e só então renomeia).
 
 A configuração fica em `~/.config/agebackup/config.json` e o assistente
