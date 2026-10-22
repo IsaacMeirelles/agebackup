@@ -30,6 +30,7 @@ from pathlib import Path
 
 from agebackup.backup import carregar_configuracao
 from agebackup.config import (
+    FULL_PADRAO_DIAS,
     MANTER_MAXIMO,
     MANTER_MINIMO,
     MANTER_PADRAO,
@@ -156,32 +157,73 @@ def _escrever_estado(destino_dir: Path, dados: dict) -> None:
         parcial.unlink(missing_ok=True)
 
 
-def _semana_de(momento: datetime) -> tuple[int, int]:
-    """Ano e semana ISO (segunda a domingo) de um momento."""
-    iso = momento.isocalendar()
-    return iso.year, iso.week
+def _quando_do_full(estado: dict, arquivo: Path) -> datetime | None:
+    """Momento do último full, para contar os dias desde então.
+
+    Prefere o horário gravado no estado; se não houver, usa a data de
+    modificação do arquivo (quando ele foi gravado).
+    """
+    bruto = estado.get("quando")
+    if isinstance(bruto, str):
+        try:
+            momento = datetime.fromisoformat(bruto)
+        except ValueError:
+            momento = None
+        if momento is not None:
+            return momento
+
+    try:
+        return datetime.fromtimestamp(arquivo.stat().st_mtime)
+    except OSError:
+        return None
 
 
-def decidir_tipo(destino_dir: Path, agora: datetime) -> tuple[str, Path | None]:
+def dias_desde_full(estado: dict, arquivo: Path, agora: datetime) -> int | None:
+    """Dias corridos desde o último full. None se não dá para saber."""
+    quando = _quando_do_full(estado, arquivo)
+    if quando is None:
+        return None
+    if quando.tzinfo is not None and agora.tzinfo is None:
+        agora = agora.astimezone()
+    if quando.tzinfo is None and agora.tzinfo is not None:
+        quando = quando.replace(tzinfo=agora.tzinfo)
+    return (agora - quando).days
+
+
+def decidir_tipo(
+    destino_dir: Path, agora: datetime, intervalo: int = FULL_PADRAO_DIAS
+) -> tuple[str, Path | None]:
     """Decide se a próxima compactação é full ou incremental.
 
-    É full quando não há estado, quando o último full foi numa semana ISO
-    diferente da atual, ou quando o arquivo do último full não existe mais
-    (apagado pela retenção). Nos demais casos é incremental, usando o full mais
-    recente como base.
+    A decisão segue a configuração do usuário (`compactacao.full_a_cada`):
+    quando já passou `intervalo` dias desde o último full, a compactação é
+    **full** (pasta inteira); nos dias intermediários é **incremental** (só os
+    arquivos novos e alterados, a partir do full mais recente).
+
+    É full também quando não há estado, quando o arquivo do último full sumiu
+    (apagado pela retenção) ou quando não se sabe quando ele foi feito.
+
+    Args:
+        destino_dir: pasta onde os arquivos compactados ficam.
+        agora: momento de referência.
+        intervalo: dias entre um full e o próximo. 0 = sempre full.
 
     Returns:
         O tipo (`"full"` ou `"incremental"`) e o arquivo base (None num full).
     """
     estado = _ler_estado(destino_dir)
     registrado = estado.get("ultimo_full")
-    semana = estado.get("semana")
     arquivo = Path(registrado) if registrado else None
 
     if not registrado or not arquivo or not arquivo.exists():
         return TIPO_FULL, None
 
-    if tuple(semana) != _semana_de(agora):
+    if intervalo <= 0:
+        # 0 = compactar tudo a cada execução.
+        return TIPO_FULL, None
+
+    decorridos = dias_desde_full(estado, arquivo, agora)
+    if decorridos is None or decorridos >= intervalo:
         return TIPO_FULL, None
 
     return TIPO_INCREMENTAL, arquivo
@@ -246,13 +288,14 @@ def compactar(
     tipo: str = TIPO_FULL,
     base: Path | None = None,
     agora: datetime | None = None,
+    intervalo: int = FULL_PADRAO_DIAS,
 ) -> ResultadoCompactacao:
     """Compacta `origem` em um `.tar.gz` dentro de `destino_dir`.
 
     Um **full** (`tipo="full"`) guarda a pasta inteira. Um **incremental**
     (`tipo="incremental"`) guarda só os arquivos modificados depois de `base`
-    (o full da semana): para recompor, extraia o full e depois o incremental por
-    cima. O estado do full mais recente é gravado em
+    (o full de referência): para recompor, extraia o full e depois o incremental
+    por cima. O estado do full mais recente é gravado em
     `destino_dir/.agebackup-compactacao.json`, base para a decisão automática de
     `decidir_tipo`.
 
@@ -269,6 +312,8 @@ def compactar(
         base: arquivo do full de referência, para o incremental. A data de
             modificação dele define o corte.
         agora: momento de referência do nome e do estado. Use o momento atual.
+        intervalo: periodicidade do full em dias, gravada no estado. 0 =
+            sempre full.
 
     Returns:
         O caminho gerado, as contagens e eventual erro.
@@ -346,8 +391,8 @@ def compactar(
             destino_dir,
             {
                 "ultimo_full": str(alvo),
-                "semana": list(_semana_de(momento)),
-                "quando": momento.isoformat(timespec="seconds"),
+                "quando": momento.astimezone().isoformat(timespec="seconds"),
+                "full_a_cada": intervalo,
             },
         )
 
@@ -373,7 +418,8 @@ def _ajuda() -> int:
     print(
         "  Uso: agebackup-compactar [opcoes]\n\n"
         "    (sem opcoes)   Compacta o backup em <pasta>_AAAAMMDD-HHMM.tar.gz.\n"
-        "                   A primeira da semana e full; as demais, incrementais\n"
+        "                   Segue a configuracao: full a cada N dias (padrao 7)\n"
+        "                   e incremental nos dias intermediarios\n"
         "    --full         Forca a compactacao full (pasta inteira)\n"
         "    --incremental  Forca a incremental (so o que mudou desde o full)\n"
         "    --destino P    Grava em P (padrao: o configurado, ou a pasta acima do backup)\n"
@@ -458,22 +504,24 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  ERRO: backup nao encontrado em {destino_backup}", file=sys.stderr)
         return 1
 
-    # Tipo: a primeira compactacao da semana e full, as demais incrementais.
-    # --full e --incremental forcam um dos dois.
+    # Tipo: segue a configuracao do usuario (compactacao.full_a_cada): full
+    # quando ja passou o intervalo de dias desde o ultimo full, incremental
+    # nos dias intermediarios. --full e --incremental forcam um dos dois.
+    intervalo = config.compactacao.full_a_cada
     agora = datetime.now()
     if "--full" in args:
         tipo, base = TIPO_FULL, None
     elif "--incremental" in args:
-        tipo, base = decidir_tipo(destino_dir, agora)
+        tipo, base = decidir_tipo(destino_dir, agora, intervalo)
         if tipo != TIPO_INCREMENTAL:
             print(
-                "  ERRO: nao ha full desta semana para servir de base ao "
-                "incremental; rode sem --incremental para gerar o full.",
+                "  ERRO: nao ha full de referencia para o incremental; rode sem "
+                "--incremental para gerar o full.",
                 file=sys.stderr,
             )
             return 1
     else:
-        tipo, base = decidir_tipo(destino_dir, agora)
+        tipo, base = decidir_tipo(destino_dir, agora, intervalo)
 
     _titulo("Compactar backup")
     print(f"  Origem   : {destino_backup}")
@@ -481,6 +529,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"  Tipo     : {tipo}")
     if tipo == TIPO_INCREMENTAL and base is not None:
         print(f"  Base     : {base.name}")
+    print(f"  Full     : {config.compactacao.texto_full_a_cada()}")
     print(f"  Retencao : {'guardar todos' if manter <= 0 else f'{manter} arquivo(s)'}")
     if prefixo:
         print(f"  Prefixo  : {prefixo}")
@@ -495,6 +544,7 @@ def main(argv: list[str] | None = None) -> int:
         tipo=tipo,
         base=base,
         agora=agora,
+        intervalo=intervalo,
     )
 
     if resultado.erro:

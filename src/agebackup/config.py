@@ -58,6 +58,14 @@ MANTER_PADRAO = 0
 MANTER_MINIMO = 0
 MANTER_MAXIMO = 60
 
+# Periodicidade da compactação full: quantos dias entre um full e o próximo.
+# No intervalo, as execuções são incrementais (só os arquivos novos e
+# alterados). O padrão é 7 dias (uma semana).
+FULL_PADRAO_DIAS = 7
+# 0 = compactar tudo a cada execução (sempre full).
+FULL_MINIMO = 0
+FULL_MAXIMO = 365
+
 # Retenção dos arquivos já enviados ao servidor FTP. 0 significa "guardar todos".
 # O padrão de 7 casa com uma semana de execuções diárias.
 MANTER_ENVIO_PADRAO = 7
@@ -130,17 +138,31 @@ class CompactacaoConfig:
     pasta acima do backup). `manter` limita quantos arquivos ficam guardados;
     0 significa "guardar todos". `prefixo`, quando não vazio, entra no nome do
     arquivo entre a pasta e a data (``<pasta>_<prefixo>_AAAAMMDD-HHMM.tar.gz``).
+
+    `full_a_cada` define a periodicidade da compactação **full**: quantos dias
+    entre um full e o próximo. No intervalo, a execução é **incremental** (só
+    os arquivos novos e alterados). O padrão é 7 dias; 0 significa compactar
+    tudo a cada execução.
     """
 
     destino: str = ""
     manter: int = MANTER_PADRAO
     prefixo: str = ""
+    full_a_cada: int = FULL_PADRAO_DIAS
 
     def pasta(self, destino_backup: Path) -> Path:
         """Pasta onde os arquivos compactados são gravados."""
         if self.destino:
             return Path(self.destino).expanduser()
         return destino_backup.expanduser().parent
+
+    def texto_full_a_cada(self) -> str:
+        """Descrição curta da periodicidade, para mostrar na tela."""
+        if self.full_a_cada <= 0:
+            return "sempre (a cada execucao)"
+        if self.full_a_cada == 1:
+            return "a cada 1 dia"
+        return f"a cada {self.full_a_cada} dias"
 
 
 @dataclass
@@ -285,6 +307,13 @@ def _ajustar_compactacao(dados: dict) -> dict:
         dados["destino"] = ""
     if "prefixo" in dados:
         dados["prefixo"] = ajustar_prefixo_compactacao(dados["prefixo"])
+    if "full_a_cada" in dados:
+        try:
+            dados["full_a_cada"] = max(
+                FULL_MINIMO, min(FULL_MAXIMO, int(dados["full_a_cada"]))
+            )
+        except TypeError, ValueError:
+            dados["full_a_cada"] = FULL_PADRAO_DIAS
     return dados
 
 

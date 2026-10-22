@@ -11,11 +11,16 @@ from agebackup import config as config_mod
 from agebackup.config import (
     AUTH_ADC,
     AUTH_SERVICE_ACCOUNT,
+    FULL_MAXIMO,
+    FULL_PADRAO_DIAS,
     LOGS_MAXIMO,
     LOGS_PADRAO_MANTER,
+    MANTER_MAXIMO,
+    MANTER_PADRAO,
     READONLY_SCOPE,
     AccountConfig,
     BackupConfig,
+    CompactacaoConfig,
     Config,
     ConfigError,
     LogConfig,
@@ -79,6 +84,65 @@ def configurar_logs(existente: LogConfig) -> LogConfig:
     compress = _perguntar_bool("Comprimir os logs antigos com gzip?", True)
 
     return LogConfig(enabled=True, keep_logs=logs, compress=compress, directory=pasta)
+
+
+def configurar_compactacao(existente: CompactacaoConfig) -> CompactacaoConfig:
+    """Pergunta a política de compactação e devolve a nova configuração.
+
+    Cobre a pasta de destino, a retenção, o prefixo do nome e a periodicidade do
+    *full* (`full_a_cada`): quantos dias entre um full e o próximo. Nos dias
+    intermediários a compactação é incremental (só os arquivos novos e
+    alterados).
+    """
+    print("\n  Politica de compactacao")
+
+    pasta_atual = existente.destino
+    print(f"\n  Pasta atual: {pasta_atual or '(pasta acima do backup)'}")
+    print("  Digite '-' para gravar na pasta acima do backup.")
+    pasta = _perguntar(
+        "Pasta dos arquivos compactados", pasta_atual, obrigatorio=False
+    )
+    if pasta == LIMPAR:
+        pasta = ""
+
+    print("\n  0 = guardar todos os arquivos compactados, sem apagar nada")
+    print(f"  1 a {MANTER_MAXIMO} = quantos arquivos manter")
+    while True:
+        resposta = _perguntar("Arquivos a manter", str(existente.manter))
+        try:
+            manter = int(resposta)
+        except ValueError:
+            print("    Digite um numero inteiro.")
+            continue
+        if 0 <= manter <= MANTER_MAXIMO:
+            break
+        print(f"    Precisa ser entre 0 e {MANTER_MAXIMO}.")
+
+    print("\n  Prefixo do nome do arquivo (vazio = sem prefixo).")
+    prefixo = _perguntar("Prefixo", existente.prefixo, obrigatorio=False)
+    prefixo = config_mod.ajustar_prefixo_compactacao(prefixo)
+    if prefixo != existente.prefixo and prefixo:
+        print(f"    Prefixo invalido ignorado; usando {prefixo!r}.")
+
+    print("\n  0 = compactar tudo a cada execucao (sempre full)")
+    print(f"  1 a {FULL_MAXIMO} = quantos dias entre um full e o proximo")
+    while True:
+        resposta = _perguntar("Full a cada N dias", str(existente.full_a_cada))
+        try:
+            full_a_cada = int(resposta)
+        except ValueError:
+            print("    Digite um numero inteiro.")
+            continue
+        if 0 <= full_a_cada <= FULL_MAXIMO:
+            break
+        print(f"    Precisa ser entre 0 e {FULL_MAXIMO}.")
+
+    return CompactacaoConfig(
+        destino=pasta,
+        manter=manter,
+        prefixo=prefixo,
+        full_a_cada=full_a_cada,
+    )
 
 
 def _titulo(texto: str) -> None:
@@ -195,6 +259,11 @@ def mostrar_status() -> None:
         )
         print(f"    compactacao  : {'gzip' if cfg.logs.compress else 'desativada'}")
         print(f"    pasta logs   : {cfg.logs.directory or '(raiz do destino)'}")
+        print(
+            f"    compactar    : {cfg.compactacao.pasta(Path(cfg.backup.destination))}"
+        )
+        print(f"    full a cada  : {cfg.compactacao.texto_full_a_cada()}")
+        print(f"    prefixo      : {cfg.compactacao.prefixo or '(sem prefixo)'}")
 
 
 @dataclass
@@ -499,6 +568,8 @@ def wizard() -> int:
 
         config.logs = configurar_logs(config.logs)
 
+        config.compactacao = configurar_compactacao(config.compactacao)
+
         if conexao_ok:
             _perguntar_reuso_futuro(config)
         else:
@@ -551,6 +622,31 @@ def editar_logs() -> int:
     return 0
 
 
+def editar_compactacao() -> int:
+    """Edita apenas a política de compactação, preservando o resto da config."""
+    _titulo("Politica de compactacao")
+
+    atual = config_mod.load()
+    if atual is None:
+        print("  Nao ha configuracao salva. Rode primeiro: uv run agebackup-setup")
+        return 1
+
+    try:
+        atual.compactacao = configurar_compactacao(atual.compactacao)
+        caminho = config_mod.save(atual)
+    except KeyboardInterrupt, EOFError:
+        print()
+        _pular()
+
+    _titulo("Politica salva")
+    print(f"  Arquivo: {caminho}")
+    print(f"  Pasta: {atual.compactacao.destino or '(pasta acima do backup)'}")
+    retencao = atual.compactacao.manter
+    print(f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} arquivo(s)'}")
+    print(f"  Full: {atual.compactacao.texto_full_a_cada()}")
+    return 0
+
+
 def _ajuda() -> int:
     """Mostra a ajuda da tela de configuração."""
     _titulo("agebackup-setup - ajuda")
@@ -560,6 +656,7 @@ def _ajuda() -> int:
         "    --status       Mostra o estado atual\n"
         "    --test         Testa a conexao com a API\n"
         "    --logs         Edita so a retencao dos logs\n"
+        "    --compactacao  Edita so a politica de compactacao\n"
         "    --reset        Apaga a configuracao\n"
         "    -h, --help     Mostra esta ajuda"
     )
@@ -579,6 +676,9 @@ def main() -> int:
 
     if "--logs" in args:
         return editar_logs()
+
+    if "--compactacao" in args:
+        return editar_compactacao()
 
     if "--reset" in args:
         if config_mod.clear():
