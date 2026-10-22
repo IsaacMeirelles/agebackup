@@ -1,6 +1,7 @@
 """Testes da compactação do backup em arquivo .tar.gz."""
 
 import tarfile
+from datetime import datetime
 
 from agebackup import compactacao
 from agebackup.compactacao import compactar
@@ -20,6 +21,19 @@ def _backup(tmp_path):
     (origem / "Didaticos" / "Temp" / "b.txt").write_bytes(b"b" * 20)
     (origem / ".agebackup-manifest.json").write_bytes(b"{}")
     return origem
+
+
+def _quando(ano, mes, dia, hora=0, minuto=0):
+    """Momento fixo, em hora local, para as decisões de full/incremental."""
+    return datetime(ano, mes, dia, hora, minuto)
+
+
+def _envelhecer(arquivo, segundos):
+    """Recua o mtime de um arquivo, simulando tempo passado desde a criação."""
+    import os
+
+    quando = arquivo.stat().st_mtime + segundos
+    os.utime(arquivo, (quando, quando))
 
 
 def _config(destino, destino_arquivos="", manter=0, prefixo="") -> Config:
@@ -90,6 +104,21 @@ class TestCompactar:
 
         assert resultado.arquivo.name.startswith("bkps_")
         assert "a/b" not in resultado.arquivo.name
+
+    def test_nome_carrega_data_e_hora(self, tmp_path):
+        """O sufixo final é AAAAMMDD-HHMM (ex.: bkps_RSKO_20261020-2151.tar.gz)."""
+        origem = _backup(tmp_path)
+
+        resultado = compactar(origem, tmp_path / "arquivos", prefixo="RSKO")
+
+        nome = resultado.arquivo.name
+        assert nome.startswith("bkps_RSKO_")
+        sufixo = nome[len("bkps_RSKO_") : -len(".tar.gz")]
+        assert len(sufixo) == 13
+        assert sufixo[8] == "-"
+        assert sufixo[:8].isdigit()
+        assert sufixo[9:].isdigit()
+        assert resultado.arquivo.suffixes == [".tar", ".gz"]
 
     def test_exclui_temporarios(self, tmp_path):
         origem = _backup(tmp_path)
@@ -350,3 +379,120 @@ class TestMain:
 
         assert compactacao.main() == 1
         assert "backup nao encontrado" in capsys.readouterr().err
+
+
+class TestFullEIncremental:
+    """A primeira compactação da semana é full; as demais, incrementais."""
+
+    def _src(self, tmp_path, nome="bkps"):
+        origem = tmp_path / nome
+        origem.mkdir()
+        (origem / "a.txt").write_bytes(b"a" * 10)
+        return origem
+
+    def test_sem_estado_decide_full(self, tmp_path):
+        tipo, base = compactacao.decidir_tipo(tmp_path / "out", _quando(2026, 10, 21))
+
+        assert tipo == compactacao.TIPO_FULL
+        assert base is None
+
+    def test_full_grava_estado_e_incremental_usa_a_base(self, tmp_path):
+        origem = self._src(tmp_path)
+        destino = tmp_path / "out"
+        dia = _quando(2026, 10, 21, 22)
+
+        full = compactar(origem, destino, prefixo="RSKO", tipo="full", agora=dia)
+        assert full.tipo == compactacao.TIPO_FULL
+
+        (origem / "b.txt").write_bytes(b"b" * 10)
+        _envelhecer(full.arquivo, -60)  # full "antes" do novo arquivo
+
+        tipo, base = compactacao.decidir_tipo(destino, _quando(2026, 10, 21, 23))
+        assert tipo == compactacao.TIPO_INCREMENTAL
+        assert base == full.arquivo
+
+    def test_incremental_leva_so_o_que_mudou(self, tmp_path):
+        origem = self._src(tmp_path)
+        destino = tmp_path / "out"
+        _envelhecer(origem / "a.txt", -3600)  # a.txt é anterior ao full
+
+        full = compactar(origem, destino, tipo="full", agora=_quando(2026, 10, 21, 22))
+        _envelhecer(full.arquivo, -60)
+        (origem / "b.txt").write_bytes(b"b" * 10)
+
+        inc = compactar(
+            origem,
+            destino,
+            tipo="incremental",
+            base=full.arquivo,
+            agora=_quando(2026, 10, 21, 23),
+        )
+
+        with tarfile.open(inc.arquivo) as pacote:
+            nomes = pacote.getnames()
+
+        assert "bkps/b.txt" in nomes
+        assert "bkps/a.txt" not in nomes
+        assert inc.itens == 1
+
+    def test_nome_incremental_tem_marca_e_data(self, tmp_path):
+        origem = self._src(tmp_path)
+        destino = tmp_path / "out"
+
+        full = compactar(origem, destino, tipo="full", agora=_quando(2026, 10, 21, 22))
+        _envelhecer(full.arquivo, -60)
+        (origem / "b.txt").write_bytes(b"b")
+
+        inc = compactar(
+            origem,
+            destino,
+            tipo="incremental",
+            base=full.arquivo,
+            agora=_quando(2026, 10, 21, 23, 15),
+        )
+
+        assert inc.arquivo.name == "bkps_inc_20261021-2315.tar.gz"
+
+    def test_semana_nova_decide_full(self, tmp_path):
+        origem = self._src(tmp_path)
+        destino = tmp_path / "out"
+        compactar(origem, destino, tipo="full", agora=_quando(2026, 10, 21, 22))
+
+        tipo, base = compactacao.decidir_tipo(destino, _quando(2026, 10, 28, 22))
+
+        assert tipo == compactacao.TIPO_FULL
+        assert base is None
+
+    def test_full_apagado_pela_retencao_forca_novo_full(self, tmp_path):
+        origem = self._src(tmp_path)
+        destino = tmp_path / "out"
+        full = compactar(origem, destino, tipo="full", agora=_quando(2026, 10, 21, 22))
+        full.arquivo.unlink()
+
+        tipo, _base = compactacao.decidir_tipo(destino, _quando(2026, 10, 21, 23))
+
+        assert tipo == compactacao.TIPO_FULL
+
+    def test_incremental_sem_base_da_erro(self, tmp_path):
+        origem = self._src(tmp_path)
+
+        resultado = compactar(origem, tmp_path / "out", tipo="incremental", base=None)
+
+        assert resultado.erro
+        assert resultado.arquivo is None
+
+    def test_retencao_alcanca_full_e_incremental(self, tmp_path):
+        origem = self._src(tmp_path)
+        destino = tmp_path / "out"
+
+        for indice, hora in enumerate([10, 11, 12, 13, 14, 15, 16]):
+            compactar(
+                origem,
+                destino,
+                tipo="full",
+                manter=7,
+                agora=_quando(2026, 10, 21, hora),
+            )
+            _envelhecer(max(destino.glob("bkps_*.tar.gz")), -60)
+
+        assert len(list(destino.glob("bkps_*.tar.gz"))) == 7

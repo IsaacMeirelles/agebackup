@@ -255,44 +255,44 @@ def _configurar_logs(entradas, existente=None):
 
 class TestConfigurarLogs:
     def test_padrao_usa_subpasta_logs(self):
-        resultado, _ = _configurar_logs(["", "12", "s"])
+        resultado, _ = _configurar_logs(["", "7", "s"])
 
         assert resultado.directory == "logs"
-        assert resultado.keep_months == 12
+        assert resultado.keep_logs == 7
         assert resultado.compress is True
 
     def test_pasta_personalizada(self):
         resultado, _ = _configurar_logs(["meus-logs", "6", "n"])
 
         assert resultado.directory == "meus-logs"
-        assert resultado.keep_months == 6
+        assert resultado.keep_logs == 6
         assert resultado.compress is False
 
     def test_limpar_grava_na_raiz(self):
-        resultado, _ = _configurar_logs(["-", "12", "s"])
+        resultado, _ = _configurar_logs(["-", "7", "s"])
 
         assert resultado.directory == ""
 
     def test_caminho_absoluto_volta_ao_padrao(self):
-        resultado, _ = _configurar_logs(["/etc", "12", "s"])
+        resultado, _ = _configurar_logs(["/etc", "7", "s"])
 
         assert resultado.directory == "logs"
 
     def test_enter_mantem_a_pasta_atual(self):
-        existente = LogConfig(directory="logs", keep_months=3)
+        existente = LogConfig(directory="logs", keep_logs=3)
 
         resultado, _ = _configurar_logs(["", "n"], existente)
 
         assert resultado.directory == "logs"
-        assert resultado.keep_months == 3
+        assert resultado.keep_logs == 3
 
     def test_pasta_nova_com_retencao_mantida(self):
-        existente = LogConfig(directory="logs", keep_months=3, compress=False)
+        existente = LogConfig(directory="logs", keep_logs=3, compress=False)
 
         resultado, _ = _configurar_logs(["historico", "n"], existente)
 
         assert resultado.directory == "historico"
-        assert resultado.keep_months == 3
+        assert resultado.keep_logs == 3
         assert resultado.compress is False
 
 

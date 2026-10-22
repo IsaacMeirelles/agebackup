@@ -38,11 +38,16 @@ automaticamente e os logs giram mensalmente com retenção configurável.
   disco, sem esse limite. Para os nativos, o `files.download` dispensa o teto.
 - **Retry configurável** — repetição automática de falhas temporárias de
   transferência (1 a 10 tentativas, padrão 3).
-- **Logs com rotação mensal** — falhas e remoções registrados em
-  `destino/logs/`, comprimidos em `.log.gz` e retidos por X meses.
+- **Logs com rotação por execução** — falhas e remoções registrados em
+  `destino/logs/`, com data e hora no nome, comprimidos em `.log.gz` e com os 7
+  mais recentes guardados.
 - **Compactação do backup** — `agebackup-compactar` junta a pasta do backup
   inteira em um único `.tar.gz` datado, gravado no destino configurado (por
-  padrão, a pasta acima do backup), com retenção opcional.
+  padrão, a pasta acima do backup), com retenção opcional. A primeira
+  compactação da semana é **full**; as demais, **incrementais** (só o que mudou).
+- **Envio para FTP/FTPS** — `agebackup-enviar` sobe o `.tar.gz` mais recente
+  para a pasta do ano/mês no servidor, confere o tamanho no destino e mantém os
+  7 mais recentes. Em seguida envia os **logs** para conferência remota.
 - **Dois modos de autenticação** — Application Default Credentials (conta
   pessoal/gestor) ou Service Account (compartilhando a pasta por e-mail).
 
@@ -89,14 +94,14 @@ Parâmetros úteis de `agebackup-compactar`:
 | --- | --- |
 | `--destino P` | Grava o arquivo em `P` (padrão: o configurado, ou a pasta acima do backup) |
 | `--manter N` | Guarda apenas os N arquivos mais recentes (0 = todos) |
-| `--prefixo X` | Texto entre a pasta e a data (`<pasta>_X_AAAAMMDD.tar.gz`; vazio = sem) |
+| `--prefixo X` | Texto entre a pasta e a data (`<pasta>_X_AAAAMMDD-HHMM.tar.gz`; vazio = sem) |
 | `--listar` | Lista os arquivos de compactação já gerados |
 | `--dry-run` | Simula, sem gravar |
 | `-h`, `--help` | Mostra a ajuda |
 
-O nome gerado é `<pasta>_AAAAMMDD.tar.gz` — ou `<pasta>_<prefixo>_AAAAMMDD.tar.gz`
-quando há prefixo — e a gravação é atômica (escreve um `.tmp` e só então
-renomeia).
+O nome gerado é `<pasta>_AAAAMMDD-HHMM.tar.gz` (ou
+`<pasta>_<prefixo>_AAAAMMDD-HHMM.tar.gz` quando há prefixo), e a gravação é
+atômica (escreve um `.tmp` e só então renomeia).
 
 A configuração fica em `~/.config/agebackup/config.json` e o assistente
 (`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo
@@ -123,9 +128,9 @@ destino/
 ├── .agebackup-manifest.json   # mapa Drive → caminho local
 ├── Pastas...                  # espelho da árvore do Drive
 └── logs/
-    ├── .agebackup-falhas.log        # mês corrente
-    ├── .agebackup-falhas.2026-09.log.gz   # meses fechados
-    └── .agebackup-removidos.log     # arquivos removidos do Drive
+    ├── .agebackup-falhas.log                  # execução corrente
+    ├── .agebackup-falhas.2026-10-21-1842.log.gz  # execuções fechadas
+    └── .agebackup-removidos.log               # arquivos removidos do Drive
 ```
 
 ## Documentação

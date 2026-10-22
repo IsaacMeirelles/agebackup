@@ -7,12 +7,11 @@ import pytest
 
 from agebackup import config as config_mod
 from agebackup.config import (
+    LOGS_MAXIMO,
+    LOGS_PADRAO_MANTER,
     MANTER_MAXIMO,
     MANTER_MINIMO,
     MANTER_PADRAO,
-    MESES_MAXIMO,
-    MESES_MINIMO,
-    MESES_PADRAO,
     AccountConfig,
     BackupConfig,
     CompactacaoConfig,
@@ -315,16 +314,16 @@ def test_proteger_chave_nao_sobrescreve_existente(home_isolado, tmp_path):
     assert ja_existe.read_text(encoding="utf-8") == '{"antigo": true}'
 
 
-def test_logs_padrao_de_12_meses():
-    assert LogConfig().keep_months == MESES_PADRAO
+def test_logs_padrao_de_7_execucoes():
+    assert LogConfig().keep_logs == LOGS_PADRAO_MANTER
     assert LogConfig().compress is True
 
 
 def test_logs_salvo_e_carregado(home_isolado):
-    config = Config(logs=LogConfig(keep_months=6, compress=False))
+    config = Config(logs=LogConfig(keep_logs=6, compress=False))
     config_mod.save(config)
 
-    assert config_mod.load().logs.keep_months == 6
+    assert config_mod.load().logs.keep_logs == 6
     assert config_mod.load().logs.compress is False
 
 
@@ -343,7 +342,7 @@ def test_config_sem_secao_logs_usa_padrao(home_isolado):
 
     config = config_mod.load()
 
-    assert config.logs.keep_months == MESES_PADRAO
+    assert config.logs.keep_logs == LOGS_PADRAO_MANTER
 
 
 def test_config_com_chave_desconhecida_e_ignorada(home_isolado):
@@ -357,27 +356,37 @@ def test_config_com_chave_desconhecida_e_ignorada(home_isolado):
 
 
 def test_retencao_acima_do_limite_e_limitada(home_isolado):
-    config_mod.save(Config(logs=LogConfig(keep_months=9999)))
+    config_mod.save(Config(logs=LogConfig(keep_logs=9999)))
 
-    assert config_mod.load().logs.keep_months == MESES_MAXIMO
+    assert config_mod.load().logs.keep_logs == LOGS_MAXIMO
 
 
-def test_retencao_negativa_vira_padrao(home_isolado):
+def test_retencao_negativa_vira_zero(home_isolado):
     config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     config_mod.CONFIG_FILE.write_text(
-        json.dumps({"logs": {"keep_months": -5}}), encoding="utf-8"
+        json.dumps({"logs": {"keep_logs": -5}}), encoding="utf-8"
     )
 
-    assert config_mod.load().logs.keep_months == MESES_MINIMO
+    assert config_mod.load().logs.keep_logs == 0
 
 
 def test_retencao_texto_invalido_vira_padrao(home_isolado):
     config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     config_mod.CONFIG_FILE.write_text(
-        json.dumps({"logs": {"keep_months": "muitos"}}), encoding="utf-8"
+        json.dumps({"logs": {"keep_logs": "muitos"}}), encoding="utf-8"
     )
 
-    assert config_mod.load().logs.keep_months == MESES_PADRAO
+    assert config_mod.load().logs.keep_logs == LOGS_PADRAO_MANTER
+
+
+def test_config_antiga_com_keep_months_migra(home_isolado):
+    """Config salva antes da troca por execuções ganha o padrão atual."""
+    config_mod.CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    config_mod.CONFIG_FILE.write_text(
+        json.dumps({"logs": {"keep_months": 6}}), encoding="utf-8"
+    )
+
+    assert config_mod.load().logs.keep_logs == LOGS_PADRAO_MANTER
 
 
 # ---------------------------------------------------------------------------

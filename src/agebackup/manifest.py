@@ -203,11 +203,14 @@ def registrar_removidos(
     registros: dict[str, Registro],
     rotacionar: bool = False,
     motivos: dict[str, str] | None = None,
+    manter: int = 0,
 ) -> Path | None:
     """Acrescenta as remoções ao log e as retira do manifesto.
 
     Não apaga nenhum arquivo do disco. Devolve o caminho do log, ou None se
     não havia o que registrar.
+
+    ``manter`` limita quantos logs fechados ficam guardados (0 = todos).
 
     ``motivos`` (opcional) mapeia caminho -> motivo (``sem_acesso``,
     ``excluido`` ou ``removido``), gravado no log para diferenciar um arquivo
@@ -219,7 +222,7 @@ def registrar_removidos(
     log = caminho_removidos(pasta_logs)
 
     if rotacionar:
-        rotacao.rotacionar(log)
+        rotacao.rotacionar(log, manter=manter)
 
     momento = _agora()
 

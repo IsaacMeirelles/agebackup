@@ -37,3 +37,6 @@ bkpenvio.json
 credentials.json
 token.json
 *.pem
+
+# Exportações de sessão (não fazem parte do projeto)
+session-*.md

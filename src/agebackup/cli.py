@@ -143,8 +143,10 @@ def mostrar_logs() -> None:
     destino = Path(config.backup.destination).expanduser()
     pasta_logs = config.logs.pasta(destino)
 
-    retencao = config.logs.keep_months
-    print(f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} meses'}")
+    retencao = config.logs.keep_logs
+    print(
+        f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} execucoes'}"
+    )
     print(f"  Compactacao: {'gzip' if config.logs.compress else 'desativada'}\n")
     print(f"  Pasta dos logs: {pasta_logs}")
 
@@ -164,7 +166,8 @@ def mostrar_logs() -> None:
             print(f"    {arquivo.name}  ({tamanho / 1024:.1f}KB comprimido)")
 
     print(
-        "\n  Logs antigos são comprimidos automaticamente quando o mês vira.\n"
+        "\n  Os logs antigos são comprimidos automaticamente quando a execução\n"
+        "  seguinte começa (data e hora no nome).\n"
         "  Para ler um arquivo compactado: zcat <arquivo>.gz"
     )
 

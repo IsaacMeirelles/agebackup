@@ -661,7 +661,7 @@ def _rotacionar_logs(config: Config, destino: Path) -> None:
     ):
         resultado = rotacao.rotacionar(
             alvo,
-            meses=politica.keep_months,
+            manter=politica.keep_logs,
             comprimir=politica.compress,
         )
 

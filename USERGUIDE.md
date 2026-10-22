@@ -482,23 +482,25 @@ permite alertar em cron.
 
 ## Passo 8 — Rotação e retenção dos logs
 
-Os dois logs (falhas e remoções) são comprimidos automaticamente quando o mês
-vira. O arquivo do mês corrente é sempre `.agebackup-<nome>.log`; os meses
-anteriores viram `.agebackup-<nome>.AAAA-MM.log.gz`.
+Cada execução começa um log novo, com **data e hora no nome**. Quando a execução
+seguinte começa, o log anterior é fechado e comprimido; o arquivo da execução em
+andamento é sempre `.agebackup-<nome>.log`. Apenas os **7 mais recentes** ficam
+guardados (configurável).
 
 ```
 ~/agebackup/logs/
-├── .agebackup-falhas.log              # outubro (texto)
-├── .agebackup-falhas.2026-09.log.gz   # setembro (comprimido)
+├── .agebackup-falhas.log                        # execução atual (texto)
+├── .agebackup-falhas.2026-10-21-1842.log.gz     # execução anterior
+├── .agebackup-falhas.2026-10-20-0300.log.gz
 ├── .agebackup-removidos.log
-├── .agebackup-removidos.2026-09.log.gz
-└── .agebackup-mes                     # marca do mês corrente
+├── .agebackup-removidos.2026-10-21-1842.log.gz
+└── .agebackup-mes                               # marca da última execução
 ```
 
 Ler um log compactado:
 
 ```sh
-zcat ~/agebackup/logs/.agebackup-falhas.2026-09.log.gz | less
+zcat ~/agebackup/logs/.agebackup-falhas.2026-10-21-1842.log.gz | less
 ```
 
 Listar os logs, a política ativa e os arquivos comprimidos:
@@ -509,8 +511,7 @@ uv run agebackup-backup --logs
 
 ### Configurar a retenção
 
-A retenção define por quanto tempo os arquivos comprimidos são mantidos antes
-de serem apagados.
+A retenção define quantos logs fechados são mantidos antes de serem apagados.
 
 ```sh
 uv run agebackup-setup --logs
@@ -519,11 +520,11 @@ uv run agebackup-setup --logs
 ```
   Politica de rotacao dos logs
 
-  Retencao atual: 12 meses
+  Retencao atual: 7 execucoes
   Alterar a retencao? [n/S]: s
-  0 = guardar todos os meses, sem apagar nada
-  1 a 120 = quantos meses manter
-  Meses de retencao [12]: 6
+  0 = guardar todos os logs, sem apagar nada
+  1 a 365 = quantos logs fechar e manter
+  Logs a manter [7]: 30
   Comprimir os logs antigos com gzip? [S/n]:
 ```
 
@@ -532,44 +533,46 @@ Para mudar de volta, edite `~/.config/agebackup/config.json`:
 ```json
 "logs": {
   "enabled": true,
-  "keep_months": 6,
+  "keep_logs": 7,
   "compress": true
 }
 ```
 
 | Campo | Valores | Efeito |
 | --- | --- | --- |
-| `keep_months` | `0` a `120` | `0` = guardar tudo; N = manter N meses |
+| `keep_logs` | `0` a `365` | `0` = guardar tudo; N = manter N logs fechados |
 | `compress` | `true` / `false` | `false` deixa os logs antigos em texto |
 | `enabled` | `true` / `false` | Desativa a rotação |
 
-Valores fora do intervalo são ajustados ao máximo (120). O padrão é
-**12 meses**.
+Valores fora do intervalo são ajustados ao máximo (365). O padrão é
+**7 logs**.
 
-### Exemplo com 6 meses de retenção
+### Exemplo com 3 logs de retenção
 
-Em outubro, com `keep_months: 6`, o AgeBackup mantém arquivos de abril a outubro.
-Março e anteriores são apagados.
+Com `keep_logs: 3`, o AgeBackup guarda apenas os 3 logs fechados mais recentes.
+Os anteriores são apagados (a contagem é por data/hora no nome, então a ordem é
+cronológica).
 
-> A retenção só apaga arquivos **comprimidos** (`.gz`) de meses anteriores.
-> O log do mês corrente nunca é apagado, nem arquivos com nome inesperado.
+> A retenção só apaga arquivos **comprimidos** (`.gz`) de execuções anteriores.
+> O log da execução corrente nunca é apagado, nem arquivos com nome inesperado.
 
 ### Como a virada é detectada
 
-O agebackup guarda o mês corrente num arquivo de marca, `.agebackup-mes`. Isso é
-deliberado: usar a data de modificação do log seria impreciso, porque gravar no
-mês corrente atualiza essa data e poderia esconder um log antigo, juntando meses
-diferentes no mesmo arquivo.
+O agebackup guarda o selo da execução (data e hora) num arquivo de marca,
+`.agebackup-mes`. Isso é deliberado: usar a data de modificação do log seria
+impreciso, porque gravar na execução corrente atualiza essa data e poderia
+esconder um log antigo.
 
 A rotação acontece uma vez por execução do backup e é idempotente: rodar
-várias vezes no mesmo mês não faz nada além do necessário. Se um arquivo de
-mês antigo ficar pendente (execução anterior falhou), ele é comprimido na
-próxima execução, mesmo dentro do mesmo mês.
+várias vezes no mesmo minuto não faz nada além do necessário. Se um log de
+execução anterior ficar pendente (execução interrompida), ele é comprimido na
+próxima execução, mesmo dentro da mesma execução.
 
 ### Economia de espaço
 
 O gzip costuma reduzir logs de texto em 80% ou mais, porque o formato TSV é
-muito repetitivo. Logs de 12 meses raramente passam de poucos MB.
+muito repetitivo. Mesmo com muitos logs guardados, o histórico raramente passa
+de poucos MB.
 
 ---
 
@@ -589,20 +592,59 @@ uv run agebackup-compactar
 ==============================================================
   Origem   : /home/isaac/bkps
   Destino  : /mnt/c/backups
+  Tipo     : full
   Retencao : guardar todos
   Modo     : real
 
-  Arquivo  : /mnt/c/backups/bkps_20261019.tar.gz
+  Arquivo  : /mnt/c/backups/bkps_20261019-1635.tar.gz
+  Tipo     : full
   Tamanho  : 727.7 MB
   Conteudo : 1732 arquivo(s)
 ```
 
-O nome gerado é `<pasta>_AAAAMMDD.tar.gz`. Um prefixo opcional entra antes da
-data — `<pasta>_<prefixo>_AAAAMMDD.tar.gz` —, útil para marcar a origem da cópia
-(ex.: `bkps_nuvem_20261019.tar.gz`). A gravação é atômica: o
+O nome gerado é `<pasta>_AAAAMMDD-HHMM.tar.gz`. Um prefixo opcional entra antes da
+data — `<pasta>_<prefixo>_AAAAMMDD-HHMM.tar.gz` —, útil para marcar a origem da cópia
+(ex.: `bkps_nuvem_20261019-1437.tar.gz`). A gravação é atômica: o
 AgeBackup escreve um `.tmp` e só então renomeia, então uma falha no meio não
 deixa um arquivo pela metade. Os `.tmp` de execuções interrompidas ficam de fora
-do arquivo.
+do arquivo. Com o horário no nome, duas execuções no mesmo dia geram arquivos
+distintos (não se sobrescrevem).
+
+### Full e incremental
+
+A **primeira compactação da semana é full**: guarda a pasta de backup inteira. As
+**demais são incrementais**: guardam só os arquivos modificados desde o full,
+o que é muito mais rápido e leve no dia a dia.
+
+```
+/mnt/c/backups/
+├── bkps_RSKO_20261019-2200.tar.gz        # full (segunda-feira)
+├── bkps_RSKO_inc_20261020-2200.tar.gz    # incremental (terça)
+├── bkps_RSKO_inc_20261021-2200.tar.gz    # incremental (quarta)
+└── .agebackup-compactacao.json           # estado: qual foi o último full
+```
+
+O incremental tem a marca `inc` antes da data:
+`<pasta>[_<prefixo>]_inc_AAAAMMDD-HHMM.tar.gz`. Para **restaurar**, extraia o
+full da semana e depois cada incremental por cima, em ordem:
+
+```sh
+tar xzf bkps_RSKO_20261019-2200.tar.gz
+tar xzf bkps_RSKO_inc_20261020-2200.tar.gz
+tar xzf bkps_RSKO_inc_20261021-2200.tar.gz
+```
+
+A semana é ISO (segunda a domingo) e vem do arquivo de estado
+`.agebackup-compactacao.json`, gravado na pasta de destino. Um full novo é feito
+automaticamente quando: é a primeira compactação, a semana virou, ou o full da
+semana foi apagado pela retenção.
+
+Para forçar um dos modos:
+
+```sh
+uv run agebackup-compactar --full         # força a pasta inteira
+uv run agebackup-compactar --incremental  # só o que mudou (erro se não houver full)
+```
 
 ### Onde o arquivo é gravado
 
@@ -624,7 +666,7 @@ Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
 | --- | --- | --- |
 | `destino` | caminho | Onde gravar (vazio = pasta acima do backup) |
 | `manter` | `0` a `60` | `0` = guardar tudo; N = manter os N mais recentes |
-| `prefixo` | texto | Texto entre a pasta e a data, ex.: `bkps_nuvem_20261019.tar.gz` (vazio = sem prefixo) |
+| `prefixo` | texto | Texto entre a pasta e a data, ex.: `bkps_nuvem_20261019-1437.tar.gz` (vazio = sem prefixo) |
 
 > A pasta de destino **não** pode ficar dentro do backup: senão o próprio
 > arquivo entraria no backup e cresceria a cada execução.
@@ -635,7 +677,9 @@ Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
 uv run agebackup-compactar --dry-run       # mostra o que seria feito, sem gravar
 uv run agebackup-compactar --listar        # lista os arquivos já gerados
 uv run agebackup-compactar --manter 5      # guarda só os 5 mais recentes
-uv run agebackup-compactar --prefixo nuvem # nome vira bkps_nuvem_AAAAMMDD.tar.gz
+uv run agebackup-compactar --prefixo nuvem # bkps_nuvem_AAAAMMDD-HHMM.tar.gz
+uv run agebackup-compactar --full          # força a compactação full
+uv run agebackup-compactar --incremental   # força a incremental
 uv run agebackup-compactar --destino /mnt/outro-disco
 ```
 
@@ -644,7 +688,146 @@ uv run agebackup-compactar --destino /mnt/outro-disco
 
 ---
 
+## Passo 10 — Enviar o arquivo compactado para o FTP
+
+Para tirar a cópia do computador, o `agebackup-enviar` sobe o `.tar.gz` mais
+recente do destino da compactação para um servidor FTP/FTPS.
+
+```sh
+uv run agebackup-enviar
+```
+
+```
+==============================================================
+  Enviar backup para FTP
+==============================================================
+  Servidor : u208146-sub16.your-storagebox.de:21 (FTPS)
+  Usuario  : u208146-sub16
+  Arquivo  : /mnt/c/backups/bkps_RSKO_20261021-2244.tar.gz
+  Pasta    : /2026/10
+  Retencao : 7 arquivo(s)
+  Confere  : tamanho
+  Modo     : real
+
+  enviando... 100.0%  (13.2 GB de 13.2 GB)
+  conferindo no servidor...
+
+  Arquivo  : bkps_RSKO_20261021-2244.tar.gz
+  Local    : 12.9 GB
+  Remoto   : /2026/10/bkps_RSKO_20261021-2244.tar.gz
+  Tamanho  : 12.9 GB (no servidor)
+  Conferido: tamanho (igual ao local)
+
+  OK: envio concluido e conferido.
+```
+
+O arquivo vai para uma pasta de **ano e mês** (`/2026/10/`), criada sozinha se
+não existir, e fica junto dos meses anteriores.
+
+### Conferência remota dos logs
+
+Depois do `.tar.gz`, o AgeBackup envia também os **logs** para uma subpasta
+`logs` do mesmo mês (`/2026/10/logs/`), para você poder auditar de longe o que
+aconteceu sem depender da máquina local:
+
+```
+/2026/10/
+├── bkps_RSKO_20261021-2244.tar.gz
+└── logs/
+    ├── .agebackup-falhas.log                     # execução corrente
+    ├── .agebackup-falhas.2026-10-20-0300.log.gz  # execuções fechadas
+    └── .agebackup-removidos.log
+```
+
+Os logs fechados **já vão comprimidos** (`.log.gz`), pela rotação do Passo 8; o
+log da execução corrente vai em texto. Cada um é conferido pelo tamanho no
+servidor, igual ao `.tar.gz`. Para pular esse passo:
+
+```sh
+uv run agebackup-enviar --sem-logs
+```
+
+### Credenciais
+
+O servidor, o usuário e a senha ficam num arquivo de configuração **fora** do
+projeto, com permissão `600`. São aceitos dois formatos.
+
+Formato de três linhas (o usado no Storage Box da Hetzner):
+
+```
+ftp://u208146-sub16.your-storagebox.de
+user: u208146-sub16
+password: sua-senha
+```
+
+Formato `.ini`:
+
+```ini
+[ftp]
+host = u208146-sub16.your-storagebox.de
+user = u208146-sub16
+password = sua-senha
+porta = 21
+pasta =
+tls = true
+```
+
+Por padrão o AgeBackup procura `~/.config/agebackup/ftp.ini`. Para usar outro
+arquivo, aponte na configuração:
+
+```json
+"envio": {
+  "credenciais": "/home/isaac/.config/agebackup/ftphetzner.ini",
+  "manter": 7
+}
+```
+
+| Campo | Valores | Efeito |
+| --- | --- | --- |
+| `credenciais` | caminho | Arquivo com host/usuário/senha (vazio = `ftp.ini`) |
+| `manter` | `0` a `365` | `0` = guardar tudo; N = manter os N mais recentes no servidor |
+
+> **FTPS x FTP:** por padrão a conexão usa **FTPS explícito** na porta 21 (o
+> esperado por servidores como o Storage Box). Para FTP puro, use `tls = false`
+> no `.ini`.
+
+### Conferência do que subiu
+
+O envio sempre confere o **tamanho** do arquivo no servidor contra o local — é a
+conferência barata, e pega um envio truncado. Para a prova byte a byte (útil
+depois de enviar dezenas de GB), use o SHA-256:
+
+```sh
+uv run agebackup-enviar --verificar-sha256    # baixa de volta e compara o hash
+```
+
+Conferir sem enviar nada (o arquivo já está no servidor):
+
+```sh
+uv run agebackup-enviar --conferir /mnt/c/backups/bkps_RSKO_20261021-2244.tar.gz
+```
+
+Outras opções:
+
+```sh
+uv run agebackup-enviar --dry-run             # simula, sem enviar
+uv run agebackup-enviar --arquivo P           # envia um arquivo específico
+uv run agebackup-enviar --manter 3            # guarda só os 3 mais recentes
+uv run agebackup-enviar --sem-verificacao     # não confere o tamanho
+uv run agebackup-enviar --sem-logs            # não envia os logs
+uv run agebackup-enviar --credenciais P       # outro arquivo de credenciais
+```
+
+> O SHA-256 gasta a banda **de novo** (baixa o arquivo inteiro). Em um link de
+> 5 MB/s, isso significa ~45 min para um arquivo de 13 GB.
+
+---
+
 ## Agendar execução automática
+
+O script `atualizar.sh` faz os três passos em sequência: baixa o backup,
+compacta e envia para o FTP. Falhas parciais de download (arquivos com download
+bloqueado pelo dono) **não** impedem a compactação nem o envio.
 
 Edite o crontab:
 
@@ -652,18 +835,26 @@ Edite o crontab:
 crontab -e
 ```
 
-Backup todo dia às 3h da manhã:
+Backup, compactação e envio todo dia às 22h:
 
 ```cron
-0 3 * * * cd /home/isaac/projetos/agebackup && /home/isaac/projetos/agebackup/.venv/bin/python -m agebackup.cli >> /home/isaac/agebackup-backup.log 2>&1
-0 4 * * * cd /home/isaac/projetos/agebackup && .venv/bin/python -m agebackup.compactacao >> /home/isaac/agebackup-compactar.log 2>&1
+PATH=/home/isaac/.local/bin:/usr/local/bin:/usr/bin:/bin
+0 22 * * * /home/isaac/projetos/agebackup/atualizar.sh >> /home/isaac/agebackup-atualizar.log 2>&1
 ```
+
+> A linha `PATH=` é necessária: o cron não herda o `~/.local/bin`, onde o `uv`
+> costuma ficar. Sem ela, o script falha com `uv: command not found`.
+
+O script usa uma trava (`flock`): se a execução anterior ainda estiver rodando,
+a nova sai sem fazer nada — evita duas execuções competindo pelo mesmo arquivo.
+O resultado de cada passo fica nos logs do projeto (`logs/backup.log`,
+`logs/compactacao.log`, `logs/envio.log`).
 
 Verifique que funcionou:
 
 ```sh
-tail -20 ~/agebackup-backup.log
-tail -20 ~/agebackup-compactar.log
+tail -20 ~/agebackup-atualizar.log
+tail -20 /home/isaac/projetos/agebackup/logs/envio.log
 ```
 
 ---
@@ -688,7 +879,7 @@ tail -20 ~/agebackup-compactar.log
 - **Move a cópia local quando o Drive renomeia ou move um arquivo** (sem
   rebaixar, desde que o conteúdo não tenha mudado); o manifesto é atualizado
   para o caminho novo
-- **Comprime os logs antigos automaticamente** quando o mês vira
+- **Comprime os logs antigos automaticamente** quando a execução vira
 
 **Não faz (ainda):**
 
@@ -840,7 +1031,7 @@ uv run agebackup-compactar --dry-run # simular, sem gravar
 │   ├── falhas.py      # log de falhas
 │   ├── manifest.py    # manifesto e log de remoções
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
-│   ├── rotacao.py     # rotação mensal e retenção dos logs
+│   ├── rotacao.py     # rotação por execução e retenção dos logs
 │   ├── setup.py       # tela de configuração
 │   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executável autônomo (PyInstaller)

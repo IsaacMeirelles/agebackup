@@ -11,9 +11,8 @@ from agebackup import config as config_mod
 from agebackup.config import (
     AUTH_ADC,
     AUTH_SERVICE_ACCOUNT,
-    MESES_MAXIMO,
-    MESES_MINIMO,
-    MESES_PADRAO,
+    LOGS_MAXIMO,
+    LOGS_PADRAO_MANTER,
     READONLY_SCOPE,
     AccountConfig,
     BackupConfig,
@@ -47,8 +46,8 @@ def configurar_logs(existente: LogConfig) -> LogConfig:
     pasta = config_mod.ajustar_pasta_logs(pasta)
 
     if existente is not None:
-        atual = existente.keep_months
-        atual_texto = "indeterminado" if atual == 0 else f"{atual} meses"
+        atual = existente.keep_logs
+        atual_texto = "indeterminado" if atual == 0 else f"{atual} execucoes"
         print(f"\n  Retencao atual: {atual_texto}")
         print(f"  Compactacao atual: {'gzip' if existente.compress else 'desativada'}")
         # O padrao e "nao": pressionar Enter nunca deve alterar o que ja foi
@@ -56,32 +55,30 @@ def configurar_logs(existente: LogConfig) -> LogConfig:
         if not _perguntar_bool("Alterar a retencao?", False):
             return LogConfig(
                 enabled=True,
-                keep_months=existente.keep_months,
+                keep_logs=existente.keep_logs,
                 compress=existente.compress,
                 directory=pasta,
             )
 
-    print("\n  0 = guardar todos os meses, sem apagar nada")
-    print(f"  1 a {MESES_MAXIMO} = quantos meses manter")
+    print("\n  0 = guardar todos os logs, sem apagar nada")
+    print(f"  1 a {LOGS_MAXIMO} = quantos logs fechar e manter")
     while True:
         resposta = _perguntar(
-            "Meses de retencao",
-            str(MESES_PADRAO),
+            "Logs a manter",
+            str(LOGS_PADRAO_MANTER),
         )
         try:
-            meses = int(resposta)
+            logs = int(resposta)
         except ValueError:
             print("    Digite um numero inteiro.")
             continue
-        if MESES_MINIMO <= meses <= MESES_MAXIMO:
+        if 0 <= logs <= LOGS_MAXIMO:
             break
-        print(f"    Precisa ser entre {MESES_MINIMO} e {MESES_MAXIMO}.")
+        print(f"    Precisa ser entre 0 e {LOGS_MAXIMO}.")
 
     compress = _perguntar_bool("Comprimir os logs antigos com gzip?", True)
 
-    return LogConfig(
-        enabled=True, keep_months=meses, compress=compress, directory=pasta
-    )
+    return LogConfig(enabled=True, keep_logs=logs, compress=compress, directory=pasta)
 
 
 def _titulo(texto: str) -> None:
@@ -192,9 +189,9 @@ def mostrar_status() -> None:
         print(
             f"    drives       : {'incluidos' if cfg.backup.include_shared_drives else 'nao incluidos'}"
         )
-        retencao = cfg.logs.keep_months
+        retencao = cfg.logs.keep_logs
         print(
-            f"    retencao     : {'indeterminado' if retencao == 0 else f'{retencao} meses'}"
+            f"    retencao     : {'indeterminado' if retencao == 0 else f'{retencao} execucoes'}"
         )
         print(f"    compactacao  : {'gzip' if cfg.logs.compress else 'desativada'}")
         print(f"    pasta logs   : {cfg.logs.directory or '(raiz do destino)'}")
@@ -547,8 +544,10 @@ def editar_logs() -> int:
     _titulo("Politica salva")
     print(f"  Arquivo: {caminho}")
     print(f"  Pasta dos logs: {atual.logs.directory or '(raiz do destino)'}")
-    retencao = atual.logs.keep_months
-    print(f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} meses'}")
+    retencao = atual.logs.keep_logs
+    print(
+        f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} execucoes'}"
+    )
     return 0
 
 

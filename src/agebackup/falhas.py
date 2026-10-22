@@ -172,13 +172,15 @@ def registrar(
     falhas: Iterable[Falha],
     sobrescrever: bool = False,
     rotacionar: bool = False,
+    manter: int = 0,
 ) -> Path | None:
     """Acrescenta as falhas ao log.
 
     Por padrão anexa ao histórico. Com `sobrescrever`, substitui o arquivo,
     para registrar o estado da última execução.
 
-    Com `rotacionar`, fecha e comprime o mês anterior antes de escrever.
+    Com `rotacionar`, fecha e comprime a execução anterior antes de escrever.
+    `manter` limita quantos logs fechados ficam guardados (0 = todos).
 
     Devolve o caminho do log, ou None se não havia o que registrar ou se não
     foi possível escrever.
@@ -190,7 +192,7 @@ def registrar(
     log = caminho_log(pasta_logs)
 
     if rotacionar:
-        rotacao.rotacionar(log)
+        rotacao.rotacionar(log, manter=manter)
 
     try:
         pasta_logs.mkdir(parents=True, exist_ok=True)

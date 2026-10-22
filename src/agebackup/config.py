@@ -45,10 +45,10 @@ RETRY_PADRAO = 3
 RETRY_MINIMO = 1
 RETRY_MAXIMO = 10
 
-# Política de rotação dos logs. 0 significa "guardar tudo" (só comprimir).
-MESES_PADRAO = 12
-MESES_MINIMO = 0
-MESES_MAXIMO = 120
+# Retenção dos logs por execução. 0 significa "guardar tudo" (só comprimir).
+# O padrão de 7 casa com uma semana de execuções diárias.
+LOGS_PADRAO_MANTER = 7
+LOGS_MAXIMO = 365
 
 # Subpasta do destino onde os logs são gravados. Vazio = raiz do destino.
 LOGS_PADRAO = "logs"
@@ -57,6 +57,11 @@ LOGS_PADRAO = "logs"
 MANTER_PADRAO = 0
 MANTER_MINIMO = 0
 MANTER_MAXIMO = 60
+
+# Retenção dos arquivos já enviados ao servidor FTP. 0 significa "guardar todos".
+# O padrão de 7 casa com uma semana de execuções diárias.
+MANTER_ENVIO_PADRAO = 7
+MANTER_ENVIO_MAXIMO = 365
 
 
 @dataclass
@@ -92,15 +97,16 @@ class AccountConfig:
 class LogConfig:
     """Rotação e retenção dos logs.
 
-    Os logs são comprimidos por mês. `keep_months` define por quanto tempo os
-    arquivos comprimidos são mantidos antes de serem apagados.
+    Cada execução gera um log com data e hora no nome; na execução seguinte o
+    anterior é comprimido. `keep_logs` define quantos logs fechados são mantidos
+    antes de serem apagados.
 
     `directory` é a subpasta do destino onde os logs ficam (padrão: "logs").
     Vazio significa a raiz do próprio destino.
     """
 
     enabled: bool = True
-    keep_months: int = MESES_PADRAO
+    keep_logs: int = LOGS_PADRAO_MANTER
     compress: bool = True
     directory: str = LOGS_PADRAO
 
@@ -123,7 +129,7 @@ class CompactacaoConfig:
     `destino` é a pasta onde os arquivos compactados são gravados (vazio =
     pasta acima do backup). `manter` limita quantos arquivos ficam guardados;
     0 significa "guardar todos". `prefixo`, quando não vazio, entra no nome do
-    arquivo entre a pasta e a data (``<pasta>_<prefixo>_AAAAMMDD.tar.gz``).
+    arquivo entre a pasta e a data (``<pasta>_<prefixo>_AAAAMMDD-HHMM.tar.gz``).
     """
 
     destino: str = ""
@@ -135,6 +141,25 @@ class CompactacaoConfig:
         if self.destino:
             return Path(self.destino).expanduser()
         return destino_backup.expanduser().parent
+
+
+@dataclass
+class EnvioConfig:
+    """Envio dos arquivos compactados para um servidor FTP/FTPS.
+
+    `credenciais` é o arquivo com host/usuário/senha (vazio = ``ftp.ini`` na
+    pasta de configuração). `manter` limita quantos arquivos ficam no servidor;
+    0 significa "guardar todos".
+    """
+
+    credenciais: str = ""
+    manter: int = MANTER_ENVIO_PADRAO
+
+    def caminho_credenciais(self) -> Path:
+        """Arquivo de credenciais do FTP."""
+        if self.credenciais:
+            return Path(self.credenciais).expanduser()
+        return CONFIG_DIR / "ftp.ini"
 
 
 @dataclass
@@ -155,6 +180,7 @@ class Config:
     logs: LogConfig = field(default_factory=LogConfig)
     retry: RetryConfig = field(default_factory=RetryConfig)
     compactacao: CompactacaoConfig = field(default_factory=CompactacaoConfig)
+    envio: EnvioConfig = field(default_factory=EnvioConfig)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -178,6 +204,7 @@ def load() -> Config | None:
         compactacao=CompactacaoConfig(
             **_conhecidos(data.get("compactacao"), CompactacaoConfig)
         ),
+        envio=EnvioConfig(**_conhecidos(data.get("envio"), EnvioConfig)),
     )
 
 
@@ -198,18 +225,36 @@ def _conhecidos(dados: object, modelo: type) -> dict:
         return _ajustar_retry(filtrado)
     if modelo is CompactacaoConfig:
         return _ajustar_compactacao(filtrado)
+    if modelo is EnvioConfig:
+        return _ajustar_envio(filtrado)
     return filtrado
+
+
+def _ajustar_envio(dados: dict) -> dict:
+    """Normaliza as credenciais e a retenção do envio ao servidor."""
+    if "manter" in dados:
+        try:
+            dados["manter"] = max(0, min(MANTER_ENVIO_MAXIMO, int(dados["manter"])))
+        except TypeError, ValueError:
+            dados["manter"] = MANTER_ENVIO_PADRAO
+    if "credenciais" in dados and not isinstance(dados["credenciais"], str):
+        dados["credenciais"] = ""
+    return dados
 
 
 def _ajustar_log(dados: dict) -> dict:
     """Normaliza a retenção e a pasta dos logs."""
-    if "keep_months" in dados:
+    campos = LOGS_MAXIMO
+    if "keep_logs" in dados:
         try:
-            dados["keep_months"] = max(
-                MESES_MINIMO, min(MESES_MAXIMO, int(dados["keep_months"]))
-            )
+            dados["keep_logs"] = max(0, min(campos, int(dados["keep_logs"])))
         except TypeError, ValueError:
-            dados["keep_months"] = MESES_PADRAO
+            dados["keep_logs"] = LOGS_PADRAO_MANTER
+    elif "keep_months" in dados:
+        # Configuração antiga, medida em meses: converte para a nova, em
+        # execuções (o dobro, aproximando uma execução por dia útil).
+        dados.pop("keep_months", None)
+        dados["keep_logs"] = LOGS_PADRAO_MANTER
     if "directory" in dados:
         dados["directory"] = ajustar_pasta_logs(dados["directory"])
     return dados
@@ -247,7 +292,7 @@ def ajustar_prefixo_compactacao(valor: object) -> str:
     """Sanitiza o prefixo do nome dos arquivos compactados.
 
     Vazio significa não usar prefixo: o nome volta ao padrão
-    ``<pasta>_AAAAMMDD.tar.gz``. Valores com separador de caminho, `..` ou
+    ``<pasta>_AAAAMMDD-HHMM.tar.gz``. Valores com separador de caminho, `..` ou
     caractere de controle são ignorados, porque o prefixo entra no nome de um
     arquivo — não abre pasta nem sai do destino.
     """
