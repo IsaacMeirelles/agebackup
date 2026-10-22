@@ -169,12 +169,44 @@ def _booleano(valor: str | None, padrao: bool) -> bool:
     return valor.strip().lower() in ("1", "true", "sim", "yes", "on")
 
 
-def pasta_remota(momento: datetime, base: str = "") -> str:
-    """Pasta do ano e do mês onde o arquivo é guardado: ``/2026/10/``.
+def _aplicar_padrao_pasta(padrao: str, momento: datetime) -> str:
+    """Aplica variáveis no padrão personalizado da pasta remota.
 
-    Alinha a organização com o que já costuma existir no servidor (uma pasta
-    por ano, uma subpasta por mês).
+    Variáveis suportadas: YYYY, YY, MM, M, dd, d
     """
+    if not padrao:
+        return ""
+    resultado = padrao
+    # Ano
+    resultado = resultado.replace("{YYYY}", f"{momento:%Y}")
+    resultado = resultado.replace("YYYY", f"{momento:%Y}")
+    resultado = resultado.replace("{YY}", f"{momento:%y}")
+    resultado = resultado.replace("YY", f"{momento:%y}")
+    # Mês
+    resultado = resultado.replace("{MM}", f"{momento:%m}")
+    resultado = resultado.replace("MM", f"{momento:%m}")
+    resultado = resultado.replace("{M}", f"{momento.month}")
+    # Dia
+    resultado = resultado.replace("{dd}", f"{momento:%d}")
+    resultado = resultado.replace("dd", f"{momento:%d}")
+    resultado = resultado.replace("{d}", f"{momento.day}")
+    return resultado
+
+
+def pasta_remota(momento: datetime, base: str = "", padrao: str = "") -> str:
+    """Pasta remota onde o arquivo é guardado.
+
+    Se `padrao` for fornecido, usa o padrão personalizado com variáveis
+    (YYYY, YY, MM, M, dd, d). Caso contrário, usa o padrão antigo: /AAAA/MM/
+    """
+    if padrao:
+        padrao_aplicado = _aplicar_padrao_pasta(padrao.strip(), momento)
+        # Permite caminhos absolutos ou relativos
+        if padrao_aplicado.startswith("/"):
+            return padrao_aplicado
+        # Se não começar com /, adiciona /
+        return "/" + padrao_aplicado.strip("/")
+    
     partes = [base.strip().strip("/")] if base.strip().strip("/") else []
     partes.extend([f"{momento:%Y}", f"{momento:%m}"])
     return "/" + "/".join(partes)
@@ -197,6 +229,8 @@ def conectar(credenciais: CredenciaisFtp, timeout: int = 60) -> ftplib.FTP:
 
 def garantir_pasta(ftp: ftplib.FTP, caminho: str) -> None:
     """Entra na pasta, criando cada nível que faltar."""
+    if not caminho or caminho == "/":
+        return
     for parte in caminho.strip("/").split("/"):
         if not parte:
             continue
@@ -851,3 +885,33 @@ def _enviar_logs(config, credenciais: CredenciaisFtp) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+def obter_credenciais(cfg=None, caminho_ini: Path | None = None) -> CredenciaisFtp:
+    """Obtém credenciais: prioriza config.ftp (com senha criptografada) ou arquivo .ini."""
+    from agebackup import config as config_mod
+    from agebackup import crypto_ftp
+
+    if cfg is None:
+        try:
+            cfg = config_mod.load()
+        except Exception:
+            cfg = None
+
+    if cfg is not None and getattr(cfg, "ftp", None) and cfg.ftp.tem_dados():
+        return CredenciaisFtp(
+            host=cfg.ftp.host,
+            porta=int(cfg.ftp.porta or 21),
+            usuario=cfg.ftp.usuario,
+            senha=crypto_ftp.descriptografar(cfg.ftp.senha_criptografada),
+            pasta=cfg.ftp.pasta_remota or "",
+            tls=bool(cfg.ftp.tls),
+        )
+
+    if caminho_ini is None and cfg is not None:
+        caminho_ini = cfg.envio.caminho_credenciais()
+    if caminho_ini is None:
+        from agebackup import config_paths
+
+        caminho_ini = config_paths.get_config_dir() / ARQUIVO_PADRAO
+    return ler_credenciais(Path(caminho_ini))

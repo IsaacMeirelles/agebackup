@@ -192,8 +192,16 @@ class ConfigTab:
         ttk.Spinbox(f, from_=0, to=365, textvariable=self.vars["ftp_manter"], width=10).grid(
             row=1, column=1, sticky=tk.W, padx=5, pady=2
         )
-        ttk.Label(f, text="Pasta remota: /AAAA/MM/ (criada automaticamente)").grid(
-            row=2, column=0, columnspan=3, sticky=tk.W, pady=4
+        ttk.Label(f, text="Pasta remota personalizada (variáveis):").grid(row=2, column=0, sticky=tk.W)
+        self.vars["ftp_pasta"] = tk.StringVar()
+        ttk.Entry(f, textvariable=self.vars["ftp_pasta"], width=50).grid(
+            row=2, column=1, sticky=tk.W, padx=5, pady=2
+        )
+        ttk.Label(f, text="Suporta: YYYY, YY, MM, M, dd, d. Ex: /backups/YYYY/MM ou /RSKO/YYYY-MM").grid(
+            row=3, column=0, columnspan=3, sticky=tk.W, pady=2
+        )
+        ttk.Label(f, text="Se vazio, usa padrão /AAAA/MM/").grid(
+            row=4, column=0, columnspan=3, sticky=tk.W
         )
 
     def _procurar_ftp(self):
@@ -231,6 +239,7 @@ class ConfigTab:
         self.vars["logs_compress"].set(cfg.logs.compress)
         self.vars["ftp_ini"].set(cfg.envio.credenciais)
         self.vars["ftp_manter"].set(str(cfg.envio.manter))
+        self.vars["ftp_pasta"].set(getattr(cfg.envio, "pasta_remota", "") or getattr(cfg, "ftp", None).pasta_remota if getattr(cfg, "ftp", None) else "")
         if self.status_callback:
             self.status_callback(f"Configuração carregada de {config_mod.CONFIG_FILE}")
 
@@ -265,6 +274,11 @@ class ConfigTab:
                 cfg.envio.manter = int(self.vars["ftp_manter"].get())
             except ValueError:
                 cfg.envio.manter = 7
+            pasta_ftp = self.vars.get("ftp_pasta")
+            if pasta_ftp:
+                cfg.envio.pasta_remota = pasta_ftp.get().strip()
+                if hasattr(cfg, "ftp"):
+                    cfg.ftp.pasta_remota = pasta_ftp.get().strip()
             caminho = config_mod.save(cfg)
             self.config = cfg
             messagebox.showinfo("Salvo", f"Configuração salva em:\n{caminho}")

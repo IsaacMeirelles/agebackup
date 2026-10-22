@@ -59,7 +59,19 @@ class RestoreTab:
         self.lbl_info.pack(anchor=tk.W)
 
     def selecionar(self):
-        arq = filedialog.askopenfilename(filetypes=[("Tar.gz", "*.tar.gz"), ("Todos", "*.*")])
+        from agebackup import config as config_mod
+        destino_padrao = ""
+        try:
+            cfg = config_mod.load()
+            if cfg:
+                destino_backup = Path(cfg.backup.destination).expanduser()
+                destino_padrao = str(cfg.compactacao.pasta(destino_backup))
+        except Exception:
+            pass
+        arq = filedialog.askopenfilename(
+            initialdir=destino_padrao or None,
+            filetypes=[("Tar.gz", "*.tar.gz"), ("Todos", "*.*")],
+        )
         if not arq:
             return
         self.arquivo_tar = Path(arq)
@@ -100,17 +112,34 @@ class RestoreTab:
                 res.append(vals[0])
         return res
 
+    def _pasta_destino_padrao(self):
+        from agebackup import config as config_mod
+        try:
+            cfg = config_mod.load()
+            if cfg:
+                destino_backup = Path(cfg.backup.destination).expanduser()
+                return str(cfg.compactacao.pasta(destino_backup))
+        except Exception:
+            pass
+        return ""
+
     def restaurar_aqui(self):
-        self._restaurar(destino=".")
+        pasta_padrao = self._pasta_destino_padrao() or "."
+        self._restaurar(destino=pasta_padrao)
 
     def restaurar_outro(self):
-        pasta = filedialog.askdirectory(title="Selecionar pasta de destino")
+        pasta = filedialog.askdirectory(
+            title="Selecionar pasta de destino", initialdir=self._pasta_destino_padrao() or None
+        )
         if not pasta:
             return
         self._restaurar(destino=pasta)
 
     def restaurar_completo(self):
-        pasta = filedialog.askdirectory(title="Restaurar arquivo COMPLETO neste destino")
+        pasta_padrao = self._pasta_destino_padrao() or None
+        pasta = filedialog.askdirectory(
+            title="Restaurar arquivo COMPLETO neste destino", initialdir=pasta_padrao
+        )
         if not pasta:
             return
         if not self.arquivo_tar:

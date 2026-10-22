@@ -70,18 +70,33 @@ class UploadTab:
         if not arquivo:
             messagebox.showerror("Erro", "Selecione um arquivo para enviar")
             return
-        cred = cfg.envio.caminho_credenciais()
-        if not cred.exists():
-            messagebox.showerror("Erro", f"Arquivo de credenciais não encontrado: {cred}")
+        try:
+            if hasattr(cfg, "ftp") and cfg.ftp.tem_dados():
+                cred_obj = ftp.obter_credenciais(cfg)
+                cred_para_envio = cred_obj
+                self._log(f"Usando credenciais salvas no config.json (criptografadas)")
+            else:
+                cred = cfg.envio.caminho_credenciais()
+                if not cred.exists():
+                    messagebox.showerror("Erro", f"Arquivo de credenciais não encontrado: {cred}")
+                    return
+                cred_obj = ftp.ler_credenciais(cred)
+                cred_para_envio = cred_obj
+            self._log(f"Credenciais: {cred_obj.usuario}@{cred_obj.host}:{cred_obj.porta}")
+        except Exception as e:
+            messagebox.showerror("Erro", str(e))
             return
         runner = ThreadedRunner(self.frame.winfo_toplevel())
         self._log(f"Enviando {caminho_completo(arquivo)}...")
-        self._log(f"Credenciais: {caminho_completo(cred)}")
-        self._log(f"Pasta remota: {ftp.pasta_remota()}")
+        padrao_ftp = getattr(cfg.envio, "pasta_remota", "") or (getattr(cfg.ftp, "pasta_remota", "") if hasattr(cfg, "ftp") else "")
+        self._log(f"Pasta remota: {ftp.pasta_remota(padrao=padrao_ftp)}")
 
         def _exec():
+            from datetime import datetime
+            pasta_custom = getattr(cfg.envio, "pasta_remota", "") or (getattr(cfg.ftp, "pasta_remota", "") if hasattr(cfg, "ftp") else "")
+            pasta = ftp.pasta_remota(datetime.now(), cred_obj.pasta, padrao=pasta_custom) if pasta_custom else ftp.pasta_remota(datetime.now(), cred_obj.pasta)
             return ftp.enviar_com_conferencia(
-                Path(arquivo), cred, manter=cfg.envio.manter, verificar_sha256=False
+                Path(arquivo), cred_obj, manter=cfg.envio.manter, verificacao=True, sha256_completo=False
             )
 
         def _ok(r):

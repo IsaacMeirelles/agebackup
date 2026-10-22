@@ -178,11 +178,13 @@ class EnvioConfig:
 
     `credenciais` é o arquivo com host/usuário/senha (vazio = ``ftp.ini`` na
     pasta de configuração). `manter` limita quantos arquivos ficam no servidor;
-    0 significa "guardar todos".
+    0 significa "guardar todos". `pasta_remota` permite personalizar o caminho
+    remoto com variáveis YYYY, YY, MM, M, dd, d.
     """
 
     credenciais: str = ""
     manter: int = MANTER_ENVIO_PADRAO
+    pasta_remota: str = ""
 
     def caminho_credenciais(self) -> Path:
         """Arquivo de credenciais do FTP."""
@@ -200,6 +202,28 @@ class BackupConfig:
     include_shared_drives: bool = False
 
 
+
+
+
+
+
+
+
+@dataclass
+class FtpConfig:
+    """Dados FTP/FTPS salvos diretamente na configuração."""
+
+    host: str = ""
+    porta: int = 21
+    usuario: str = ""
+    senha_criptografada: str = ""
+    pasta_remota: str = ""
+    tls: bool = True
+
+    def tem_dados(self) -> bool:
+        return bool(self.host and self.usuario)
+
+
 @dataclass
 class Config:
     """Configuração completa do AgeBackup."""
@@ -210,6 +234,7 @@ class Config:
     retry: RetryConfig = field(default_factory=RetryConfig)
     compactacao: CompactacaoConfig = field(default_factory=CompactacaoConfig)
     envio: EnvioConfig = field(default_factory=EnvioConfig)
+    ftp: FtpConfig = field(default_factory=FtpConfig)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -231,7 +256,7 @@ def load() -> Config | None:
     except (OSError, json.JSONDecodeError) as error:
         raise ConfigError(f"Não foi possível ler {CONFIG_FILE}: {error}") from error
 
-    return Config(
+    cfg = Config(
         account=AccountConfig(**_conhecidos(data.get("account"), AccountConfig)),
         backup=BackupConfig(**_conhecidos(data.get("backup"), BackupConfig)),
         logs=LogConfig(**_conhecidos(data.get("logs"), LogConfig)),
@@ -240,7 +265,9 @@ def load() -> Config | None:
             **_conhecidos(data.get("compactacao"), CompactacaoConfig)
         ),
         envio=EnvioConfig(**_conhecidos(data.get("envio"), EnvioConfig)),
+        ftp=FtpConfig(**_conhecidos(data.get("ftp"), FtpConfig)),
     )
+    return cfg
 
 
 def _conhecidos(dados: object, modelo: type) -> dict:
@@ -262,6 +289,8 @@ def _conhecidos(dados: object, modelo: type) -> dict:
         return _ajustar_compactacao(filtrado)
     if modelo is EnvioConfig:
         return _ajustar_envio(filtrado)
+    if modelo is FtpConfig:
+        return filtrado
     return filtrado
 
 
@@ -654,3 +683,22 @@ def status() -> dict:
         "config": config,
         "chave_presente": config.account.chave_presente() if config else False,
     }
+
+
+
+def status() -> dict:
+    """Resume o estado atual da configuração para exibição."""
+    config = load()
+    return {
+        "gcloud_installed": gcloud_installed(),
+        "gcloud_path": gcloud_path(),
+        "adc_present": adc_present(),
+        "adc_info": adc_info(),
+        "config_file": CONFIG_FILE,
+        "config_exists": config is not None,
+        "config": config,
+        "chave_presente": config.account.chave_presente() if config else False,
+    }
+
+
+# (FtpConfig já definido acima)
