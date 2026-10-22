@@ -9,8 +9,15 @@ import subprocess
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 
-CONFIG_DIR = Path.home() / ".config" / "agebackup"
-CONFIG_FILE = CONFIG_DIR / "config.json"
+from agebackup import config_paths
+
+# Configuração sempre junto à aplicação (sobrescreve comportamento antigo)
+CONFIG_DIR = config_paths.get_config_dir()
+CONFIG_FILE = config_paths.get_config_path()
+# Arquivo legado (apenas para migração/compatibilidade)
+LEGACY_CONFIG_DIR = config_paths.LEGACY_CONFIG_DIR
+LEGACY_CONFIG_FILE = config_paths.LEGACY_CONFIG_FILE
+
 ADC_FILE = Path.home() / ".config" / "gcloud" / "application_default_credentials.json"
 
 # Somente leitura: suficiente para backup e com menos burocracia de verificação.
@@ -210,6 +217,12 @@ class Config:
 
 def load() -> Config | None:
     """Carrega a configuração salva, ou None se ainda não existir."""
+    try:
+        config_paths.migrar_se_necessario()
+    except Exception:
+        # Não falha se migração der problema; tenta carregar do local atual
+        pass
+
     if not CONFIG_FILE.exists():
         return None
 
@@ -359,12 +372,17 @@ def ajustar_pasta_logs(valor: object) -> str:
 
 
 def save(config: Config) -> Path:
-    """Salva a configuração com permissão restrita ao usuário."""
+    """Salva a configuração junto à aplicação com permissão restrita ao usuário."""
     try:
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        CONFIG_DIR.chmod(0o700)
+        config_paths.ensure_config_dir()
+        # Mantém chmod no diretório quando possível
+        try:
+            CONFIG_DIR.chmod(0o700)
+        except OSError:
+            pass
         CONFIG_FILE.write_text(
-            json.dumps(config.to_dict(), indent=2, ensure_ascii=False), encoding="utf-8"
+            json.dumps(config.to_dict(), indent=2, ensure_ascii=False) + "\n",
+            encoding="utf-8",
         )
         CONFIG_FILE.chmod(0o600)
     except OSError as error:
