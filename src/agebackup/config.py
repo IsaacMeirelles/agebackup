@@ -202,13 +202,6 @@ class BackupConfig:
     include_shared_drives: bool = False
 
 
-
-
-
-
-
-
-
 @dataclass
 class FtpConfig:
     """Dados FTP/FTPS salvos diretamente na configuração."""
@@ -242,11 +235,13 @@ class Config:
 
 def load() -> Config | None:
     """Carrega a configuração salva, ou None se ainda não existir."""
-    try:
-        config_paths.migrar_se_necessario()
-    except Exception:
-        # Não falha se migração der problema; tenta carregar do local atual
-        pass
+    # Só migra quando ninguém redirecionou o CONFIG_FILE (testes, por exemplo).
+    if CONFIG_FILE == config_paths.get_config_path():
+        try:
+            config_paths.migrar_se_necessario()
+        except OSError:
+            # Não falha se a migração der problema; usa o local atual mesmo.
+            pass
 
     if not CONFIG_FILE.exists():
         return None
@@ -403,7 +398,8 @@ def ajustar_pasta_logs(valor: object) -> str:
 def save(config: Config) -> Path:
     """Salva a configuração junto à aplicação com permissão restrita ao usuário."""
     try:
-        config_paths.ensure_config_dir()
+        # Usa o diretório do CONFIG_FILE (respeita redirecionamentos em testes).
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
         # Mantém chmod no diretório quando possível
         try:
             CONFIG_DIR.chmod(0o700)
@@ -683,22 +679,3 @@ def status() -> dict:
         "config": config,
         "chave_presente": config.account.chave_presente() if config else False,
     }
-
-
-
-def status() -> dict:
-    """Resume o estado atual da configuração para exibição."""
-    config = load()
-    return {
-        "gcloud_installed": gcloud_installed(),
-        "gcloud_path": gcloud_path(),
-        "adc_present": adc_present(),
-        "adc_info": adc_info(),
-        "config_file": CONFIG_FILE,
-        "config_exists": config is not None,
-        "config": config,
-        "chave_presente": config.account.chave_presente() if config else False,
-    }
-
-
-# (FtpConfig já definido acima)

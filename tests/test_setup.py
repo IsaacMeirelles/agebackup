@@ -485,8 +485,9 @@ class TestWizardDesligaPerguntaDeReuso:
     def test_resposta_n_grava_ask_reuse_false(self):
         # 1) método ADC  2) não relogar  3-5) destino/pasta/shared
         # 6) pasta dos logs (Enter = "logs")  7) não alterar retenção
-        # 8) não perguntar reuso no futuro
-        codigo, _ = self._rodar(["1", "n", "", "", "n", "", "", "n"])
+        # 8-11) compactação (Enter mantém os padrões)
+        # 12) não perguntar reuso no futuro
+        codigo, _ = self._rodar(["1", "n", "", "", "n", "", "", "", "", "", "", "n"])
 
         assert codigo == 0
         salvo = config_mod.load()
@@ -495,14 +496,16 @@ class TestWizardDesligaPerguntaDeReuso:
         assert salvo.logs.directory == "logs"
 
     def test_resposta_s_mantem_pergunta_ligada(self):
-        codigo, _ = self._rodar(["1", "n", "", "", "n", "", "", "s"])
+        codigo, _ = self._rodar(["1", "n", "", "", "n", "", "", "", "", "", "", "s"])
 
         assert codigo == 0
         assert config_mod.load().account.ask_reuse is True
 
     def test_conexao_falha_mantem_pergunta_ligada(self):
         codigo, _ = self._rodar(
-            ["1", "n", "", "", "n", "", ""],
+            # Sem conexão a pergunta de reuso não é feita; a compactação
+            # continua sendo perguntada (4 respostas em branco).
+            ["1", "n", "", "", "n", "", "", "", "", "", ""],
             conexao=(False, "Falha na conexão: sem credenciais", ""),
         )
 
@@ -513,7 +516,9 @@ class TestWizardDesligaPerguntaDeReuso:
 
     def test_email_da_api_sobrescreve_palpite_do_adc(self):
         """O ADC do gcloud não guarda o e-mail: a fonte é a resposta da API."""
-        entrada, saida = _responder(["1", "n", "", "", "n", "", "", "s"])
+        entrada, saida = _responder(
+            ["1", "n", "", "", "n", "", "", "", "", "", "", "s"]
+        )
         with (
             entrada,
             mock.patch("sys.stdout", new=saida),

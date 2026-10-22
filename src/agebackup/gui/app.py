@@ -27,7 +27,7 @@ class AgeBackupApp:
         # Migração automática para config junto à app
         try:
             config_paths.migrar_se_necessario()
-        except Exception:
+        except OSError:
             pass
 
         topo = ttk.Frame(root)
@@ -81,21 +81,23 @@ class AgeBackupApp:
         self.lbl_status.pack(anchor=tk.W)
         botoes = ttk.Frame(self.tab_inicio)
         botoes.pack(fill=tk.X, pady=10)
-        ttk.Button(botoes, text="Ir para Backup", command=lambda: self.notebook.select(2)).pack(
-            side=tk.LEFT
-        )
+        ttk.Button(
+            botoes, text="Ir para Backup", command=lambda: self.notebook.select(2)
+        ).pack(side=tk.LEFT)
         ttk.Button(
             botoes, text="Ir para Compactação", command=lambda: self.notebook.select(3)
         ).pack(side=tk.LEFT, padx=2)
-        ttk.Button(botoes, text="Ir para Upload Manual", command=lambda: self.notebook.select(4)).pack(
-            side=tk.LEFT, padx=2
-        )
-        ttk.Button(botoes, text="Ir para Restaurar", command=lambda: self.notebook.select(5)).pack(
-            side=tk.LEFT, padx=2
-        )
-        ttk.Button(botoes, text="Ir para Log", command=lambda: self.notebook.select(6)).pack(
-            side=tk.LEFT, padx=2
-        )
+        ttk.Button(
+            botoes,
+            text="Ir para Upload Manual",
+            command=lambda: self.notebook.select(4),
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            botoes, text="Ir para Restaurar", command=lambda: self.notebook.select(5)
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            botoes, text="Ir para Log", command=lambda: self.notebook.select(6)
+        ).pack(side=tk.LEFT, padx=2)
         ttk.Button(botoes, text="Atualizar status", command=self.atualizar_status).pack(
             side=tk.RIGHT
         )
@@ -103,12 +105,12 @@ class AgeBackupApp:
     def atualizar_status(self):
         try:
             cfg = config_mod.load()
-        except Exception:
+        except config_mod.ConfigError, OSError:
             cfg = None
         if not cfg:
             self.lbl_status.config(
                 text="Configuração não encontrada. Vá em Configuração e salve primeiro.\n"
-                     f"Arquivo: {config_mod.CONFIG_FILE}"
+                f"Arquivo: {config_mod.CONFIG_FILE}"
             )
             self.set_status("Sem configuração")
             return
@@ -117,8 +119,12 @@ class AgeBackupApp:
         texto.append(f"Conta: {cfg.account.email or cfg.account.auth_method}")
         texto.append(f"Destino backup: {cfg.backup.destination or '(não definido)'}")
         texto.append(f"Pasta Drive: {cfg.backup.folder_id or '(todo Drive)'}")
-        texto.append(f"Compactação: full {cfg.compactacao.texto_full_a_cada()}, prefixo='{cfg.compactacao.prefixo or ''}'")
-        texto.append(f"Logs: manter={cfg.logs.keep_logs}, comprimir={cfg.logs.compress}")
+        texto.append(
+            f"Compactação: full {cfg.compactacao.texto_full_a_cada()}, prefixo='{cfg.compactacao.prefixo or ''}'"
+        )
+        texto.append(
+            f"Logs: manter={cfg.logs.keep_logs}, comprimir={cfg.logs.compress}"
+        )
         texto.append(f"Envio FTP: credenciais={cfg.envio.credenciais or '(padrão)'}")
         self.lbl_status.config(text="\n".join(texto))
         self.set_status("Status atualizado")
@@ -126,7 +132,7 @@ class AgeBackupApp:
     def _salvar_config(self):
         try:
             self.config_tab.salvar()
-        except Exception:
+        except config_mod.ConfigError, OSError:
             pass
 
     def abrir_ajuda(self):
@@ -135,7 +141,7 @@ class AgeBackupApp:
 
 def main():
     root = tk.Tk()
-    app = AgeBackupApp(root)
+    AgeBackupApp(root)
     root.mainloop()
 
 

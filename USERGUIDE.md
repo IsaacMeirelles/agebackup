@@ -7,6 +7,83 @@ Guia para colocar o `agebackup` em uso do zero. Siga na ordem.
 Ferramenta de backup do Google Drive. Baixa os arquivos da sua conta para uma
 pasta local e, em execuções seguintes, só rebaixa o que mudou.
 
+O AgeBackup tem duas formas de uso — as duas fazem exatamente as mesmas coisas:
+
+| Forma | Quando usar |
+| --- | --- |
+| **Aplicativo (interface gráfica)** | Dia a dia: configura, executa, compacta, envia, restaura e lê os logs numa janela só |
+| **Linha de comando** | Automação, cron, servidores e diagnóstico |
+
+> A configuração é **a mesma** para as duas formas: um arquivo `agebackup.json`
+> guardado **junto ao aplicativo/binário**. Configure pela janela e o cron usa
+> o que foi salvo, e vice-versa.
+
+---
+
+## Aplicativo gráfico (janela única)
+
+O comando é:
+
+```sh
+cd ~/projetos/agebackup
+uv run agebackup-gui
+```
+
+Ou, se estiver usando o executável autônomo:
+
+```sh
+./agebackup-gui
+```
+
+### Pré-requisito: Tkinter
+
+A janela usa o Tkinter, que em algumas distribuições não vem com o Python:
+
+```sh
+# Debian / Ubuntu / WSL
+sudo apt update && sudo apt install -y python3-tk
+```
+
+Confira:
+
+```sh
+python3 -c "import tkinter; print('tkinter OK')"
+```
+
+> Em WSL, a janela aparece pelo WSLg (WSL2 atualizado). Se nada abrir, veja a
+> seção [Problemas comuns](#problemas-comuns).
+
+### As abas
+
+| Aba | Para que serve |
+| --- | --- |
+| **Início/Status** | Resumo do que está configurado (conta, destino, compactação, logs, FTP) e atalhos para as outras abas |
+| **Configuração** | Todos os campos de conta, backup, compactação, logs e envio, em sub-abas |
+| **Backup** | Executa o backup com o log aparecendo em tempo real (com caminho completo dos arquivos) |
+| **Compactação** | Lista os `.tar.gz`, segue a política automática, força FULL/INCREMENTAL e aplica a retenção |
+| **Upload Manual** | Envia um `.tar.gz` ou os logs sob demanda |
+| **Restaurar** | Restaura um arquivo individual de dentro do `.tar.gz` ou o arquivo completo |
+| **Log** | Abre os logs com filtro de texto e caminho completo |
+| **Ajuda** | Tutorial detalhado de cada aba, campo e botão (atalho **F1**) |
+
+### Atalhos
+
+| Atalho | Ação |
+| --- | --- |
+| `F1` | Abre a ajuda/tutorial |
+| `Ctrl+S` | Salva a configuração (na aba Configuração) |
+| `Ctrl+Q` | Fecha o aplicativo |
+
+### Configuração junto ao aplicativo
+
+A configuração fica em **`agebackup.json` na mesma pasta do executável** (em
+desenvolvimento, na raiz do projeto). Na primeira execução, o AgeBackup migra
+automaticamente o antigo `~/.config/agebackup/config.json`, se ele existir.
+
+> A senha do FTP fica **criptografada** nesse arquivo (campo
+> `ftp.senha_criptografada`). A chave usada para cifrar fica num arquivo
+> separado, `.agebackup-ftp.key`, com permissão restrita.
+
 ---
 
 ## Passo 0 — Pré-requisitos
@@ -35,10 +112,11 @@ gcloud --version
 > Você pode usar o AgeBackup **sem gcloud**, escolhendo o método **Service
 > Account** no assistente (não abre navegador).
 
-> **Sem Python?** Existem executáveis autônomos (`agebackup-setup`,
-> `agebackup-backup` e `agebackup-compactar`) que dispensam Python e `uv` — basta
-> trocar `uv run agebackup-setup` por `./agebackup-setup` (e assim por diante).
-> Veja [packaging/README.md](packaging/README.md) para gerá-los.
+> **Sem Python?** Existem executáveis autônomos (`agebackup-gui`,
+> `agebackup-setup`, `agebackup-backup`, `agebackup-compactar` e
+> `agebackup-enviar`) que dispensam Python e `uv` — basta trocar
+> `uv run agebackup-setup` por `./agebackup-setup` (e assim por diante). Veja
+> [packaging/README.md](packaging/README.md) para gerá-los.
 
 ---
 
@@ -75,7 +153,7 @@ cd ~/projetos/agebackup
 uv run agebackup-setup
 ```
 
-O assistente faz 4 passos:
+O assistente faz 5 passos:
 
 1. **Conta e credenciais** — escolhe o método e autentica
 2. **Destino e escopo** — pergunta a pasta local e se quer só uma pasta do
@@ -83,6 +161,11 @@ O assistente faz 4 passos:
    espelhando a árvore do Drive no disco
 3. **Teste de conexão** — faz uma chamada real à API e confirma a conta
 4. **Rotação e retenção** — por quanto tempo guardar os logs antigos
+5. **Política de compactação** — pasta, retenção, prefixo e de quantos em
+   quantos dias fazer um full
+
+> A mesma configuração pode ser feita pela janela (aba **Configuração**), que
+> tem uma sub-aba para cada uma dessas seções.
 
 Respostas sugeridas para começar:
 
@@ -105,12 +188,31 @@ Isso é suficiente para backup e evita a burocracia de verificação do Google.
 ### Conferindo a configuração
 
 ```sh
-uv run agebackup-setup --status   # mostra o estado atual
-uv run agebackup-setup --test     # testa a conexão
-uv run agebackup-setup --logs     # edita apenas a política de logs
+uv run agebackup-setup --status        # mostra o estado atual
+uv run agebackup-setup --test          # testa a conexão
+uv run agebackup-setup --logs          # edita apenas a política de logs
+uv run agebackup-setup --compactacao   # edita apenas a política de compactação
 ```
 
-O arquivo fica em `~/.config/agebackup/config.json`, com permissão `600`.
+O arquivo fica em **`agebackup.json`, junto ao aplicativo** (com permissão
+`600`). Ele contém **todas** as seções usadas pelo backup, compactação, logs e
+envio:
+
+```json
+{
+  "account":     { "email": "...", "auth_method": "service_account", "...": "..." },
+  "backup":      { "destination": "/home/isaac/bkps", "folder_id": "...", "include_shared_drives": true },
+  "logs":        { "enabled": true, "keep_logs": 7, "compress": true, "directory": "logs" },
+  "retry":       { "attempts": 3 },
+  "compactacao": { "destino": "/mnt/c/backups", "manter": 7, "prefixo": "RSKO", "full_a_cada": 7 },
+  "envio":       { "credenciais": "", "manter": 7, "pasta_remota": "" },
+  "ftp":         { "host": "...", "porta": 21, "usuario": "...", "senha_criptografada": "...", "pasta_remota": "", "tls": true }
+}
+```
+
+> Quem já usava a versão antiga não perde nada: o `config.json` de
+> `~/.config/agebackup/` é copiado para junto do aplicativo na primeira
+> execução (o original é preservado como `config.json.bak`).
 
 ---
 
@@ -528,13 +630,15 @@ uv run agebackup-setup --logs
   Comprimir os logs antigos com gzip? [S/n]:
 ```
 
-Para mudar de volta, edite `~/.config/agebackup/config.json`:
+Para mudar de volta, edite a seção `logs` do `agebackup.json` (junto ao
+aplicativo):
 
 ```json
 "logs": {
   "enabled": true,
   "keep_logs": 7,
-  "compress": true
+  "compress": true,
+  "directory": "logs"
 }
 ```
 
@@ -612,21 +716,26 @@ distintos (não se sobrescrevem).
 
 ### Full e incremental
 
-A **primeira compactação da semana é full**: guarda a pasta de backup inteira. As
-**demais são incrementais**: guardam só os arquivos modificados desde o full,
-o que é muito mais rápido e leve no dia a dia.
+A política segue a configuração `compactacao.full_a_cada`, que é **quantos dias
+entre um full e o próximo** (padrão: **7**):
+
+- **full** — guarda a pasta de backup inteira;
+- **incremental** — guarda só os arquivos novos e alterados desde o full.
+
+Ou seja, com o padrão de 7 dias: um full por semana e, nos dias intermediários,
+apenas os incrementais — muito mais rápido e leve no dia a dia.
 
 ```
 /mnt/c/backups/
-├── bkps_RSKO_20261019-2200.tar.gz        # full (segunda-feira)
-├── bkps_RSKO_inc_20261020-2200.tar.gz    # incremental (terça)
-├── bkps_RSKO_inc_20261021-2200.tar.gz    # incremental (quarta)
-└── .agebackup-compactacao.json           # estado: qual foi o último full
+├── bkps_RSKO_20261019-2200.tar.gz        # full
+├── bkps_RSKO_inc_20261020-2200.tar.gz    # incremental (dia seguinte)
+├── bkps_RSKO_inc_20261021-2200.tar.gz    # incremental
+└── .agebackup-compactacao.json           # estado: último full e quando foi feito
 ```
 
 O incremental tem a marca `inc` antes da data:
 `<pasta>[_<prefixo>]_inc_AAAAMMDD-HHMM.tar.gz`. Para **restaurar**, extraia o
-full da semana e depois cada incremental por cima, em ordem:
+full e depois cada incremental por cima, em ordem:
 
 ```sh
 tar xzf bkps_RSKO_20261019-2200.tar.gz
@@ -634,10 +743,20 @@ tar xzf bkps_RSKO_inc_20261020-2200.tar.gz
 tar xzf bkps_RSKO_inc_20261021-2200.tar.gz
 ```
 
-A semana é ISO (segunda a domingo) e vem do arquivo de estado
-`.agebackup-compactacao.json`, gravado na pasta de destino. Um full novo é feito
-automaticamente quando: é a primeira compactação, a semana virou, ou o full da
-semana foi apagado pela retenção.
+A contagem de dias vem do arquivo de estado `.agebackup-compactacao.json`,
+gravado na pasta de destino. Um full novo é feito automaticamente quando: é a
+primeira compactação, já passaram os dias configurados desde o último full, ou
+o full de referência foi apagado pela retenção.
+
+Para mudar a periodicidade (aba **Configuração → Compactação**, ou na linha de
+comando):
+
+| `full_a_cada` | Efeito |
+| --- | --- |
+| `7` (padrão) | full a cada 7 dias; incrementais nos demais |
+| `1` | full todos os dias (equivale a "sempre full") |
+| `0` | compacta tudo a cada execução |
+| `30` | um full por mês; incrementais nos demais dias |
 
 Para forçar um dos modos:
 
@@ -652,13 +771,15 @@ uv run agebackup-compactar --incremental  # só o que mudou (erro se não houver
 - sem a opção, usa o `compactacao.destino` da configuração;
 - sem nada configurado, grava na pasta **acima** do backup.
 
-Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
+Para fixar o destino, use a seção `compactacao` do `agebackup.json` (ou a aba
+**Configuração → Compactação**):
 
 ```json
 "compactacao": {
   "destino": "/mnt/c/backups",
   "manter": 0,
-  "prefixo": ""
+  "prefixo": "",
+  "full_a_cada": 7
 }
 ```
 
@@ -667,6 +788,7 @@ Para fixar o destino, deixe em `~/.config/agebackup/config.json`:
 | `destino` | caminho | Onde gravar (vazio = pasta acima do backup) |
 | `manter` | `0` a `60` | `0` = guardar tudo; N = manter os N mais recentes |
 | `prefixo` | texto | Texto entre a pasta e a data, ex.: `bkps_nuvem_20261019-1437.tar.gz` (vazio = sem prefixo) |
+| `full_a_cada` | `0` a `365` | Dias entre um full e o próximo (`7` = semanal; `0` = sempre full) |
 
 > A pasta de destino **não** pode ficar dentro do backup: senão o próprio
 > arquivo entraria no backup e cresceria a cada execução.
@@ -722,7 +844,8 @@ uv run agebackup-enviar
 ```
 
 O arquivo vai para uma pasta de **ano e mês** (`/2026/10/`), criada sozinha se
-não existir, e fica junto dos meses anteriores.
+não existir, e fica junto dos meses anteriores. Esse padrão pode ser
+personalizado — veja [Pasta remota personalizada](#pasta-remota-personalizada).
 
 ### Conferência remota dos logs
 
@@ -749,8 +872,29 @@ uv run agebackup-enviar --sem-logs
 
 ### Credenciais
 
-O servidor, o usuário e a senha ficam num arquivo de configuração **fora** do
-projeto, com permissão `600`. São aceitos dois formatos.
+Os dados do servidor ficam **dentro do próprio `agebackup.json`**, na seção
+`ftp`, com a **senha criptografada**:
+
+```json
+"ftp": {
+  "host": "u208146-sub16.your-storagebox.de",
+  "porta": 21,
+  "usuario": "u208146-sub16",
+  "senha_criptografada": "gAAAAAB...",
+  "pasta_remota": "",
+  "tls": true
+}
+```
+
+Na aba **Configuração → Envio (FTP/FTPS)** dá para editar host, porta, usuário,
+senha, pasta remota e TLS. A senha é cifrada ao salvar; a chave fica em
+`.agebackup-ftp.key`, ao lado do `agebackup.json`, com permissão restrita.
+
+> **Importante:** não é possível "ver" a senha de volta no arquivo — só
+> substituí-la. Se precisar trocá-la, digite a nova na aba de configuração.
+
+Ainda é possível usar um arquivo externo de credenciais (útil para migrar de
+uma instalação antiga). São aceitos dois formatos.
 
 Formato de três linhas (o usado no Storage Box da Hetzner):
 
@@ -772,24 +916,53 @@ pasta =
 tls = true
 ```
 
-Por padrão o AgeBackup procura `~/.config/agebackup/ftp.ini`. Para usar outro
-arquivo, aponte na configuração:
+Para usar um arquivo externo, aponte em `envio.credenciais`:
 
 ```json
 "envio": {
   "credenciais": "/home/isaac/.config/agebackup/ftphetzner.ini",
-  "manter": 7
+  "manter": 7,
+  "pasta_remota": ""
 }
 ```
 
 | Campo | Valores | Efeito |
 | --- | --- | --- |
-| `credenciais` | caminho | Arquivo com host/usuário/senha (vazio = `ftp.ini`) |
+| `credenciais` | caminho | Arquivo externo com host/usuário/senha (vazio = `ftp.ini`; os dados de `ftp` têm prioridade) |
 | `manter` | `0` a `365` | `0` = guardar tudo; N = manter os N mais recentes no servidor |
+| `pasta_remota` | texto | Padrão personalizado do caminho remoto (vazio = `/AAAA/MM/`) |
 
 > **FTPS x FTP:** por padrão a conexão usa **FTPS explícito** na porta 21 (o
-> esperado por servidores como o Storage Box). Para FTP puro, use `tls = false`
-> no `.ini`.
+> esperado por servidores como o Storage Box). Para FTP puro, use
+> `"tls": false` na seção `ftp`.
+
+### Pasta remota personalizada
+
+Por padrão o arquivo vai para `/AAAA/MM/` (ex.: `/2026/10/`). Você pode definir
+qualquer caminho, usando as variáveis abaixo — o resto é livre (qualquer
+caractere válido em nome de pasta):
+
+| Variável | Vira | Exemplo (22/10/2026) |
+| --- | --- | --- |
+| `YYYY` | ano com 4 dígitos | `2026` |
+| `YY` | ano com 2 dígitos | `26` |
+| `MM` | mês com 2 dígitos | `10` |
+| `M` | mês sem zero à esquerda | `10` |
+| `dd` | dia com 2 dígitos | `22` |
+| `d` | dia sem zero à esquerda | `22` |
+
+Exemplos:
+
+| `pasta_remota` | Resultado |
+| --- | --- |
+| *(vazio)* | `/2026/10/` |
+| `/backups/YYYY/MM` | `/backups/2026/10/` |
+| `/RSKO/YYYY-MM` | `/RSKO/2026-10/` |
+| `/clientes/RSKO/YYYY/MM/dd` | `/clientes/RSKO/2026/10/22/` |
+| `/rotina-YY` | `/rotina-26/` |
+
+A pasta é criada automaticamente no servidor, nível por nível, se não existir.
+Os logs vão para uma subpasta `logs` **dentro** dessa pasta.
 
 ### Conferência do que subiu
 
@@ -820,6 +993,77 @@ uv run agebackup-enviar --credenciais P       # outro arquivo de credenciais
 
 > O SHA-256 gasta a banda **de novo** (baixa o arquivo inteiro). Em um link de
 > 5 MB/s, isso significa ~45 min para um arquivo de 13 GB.
+
+---
+
+## Passo 11 — Restaurar arquivos
+
+Restaurar é o caminho de volta: tirar um arquivo (ou tudo) de dentro do
+`.tar.gz` gerado no Passo 9.
+
+### Pela janela (aba Restaurar)
+
+A aba **Restaurar** cobre os dois casos:
+
+1. **Arquivo individual** — clique em **Selecionar .tar.gz** (a janela já abre
+   na pasta de compactação), use o campo **Filtrar** para achar o arquivo,
+   selecione um ou mais itens e escolha:
+   - **Restaurar selecionado(s) aqui...** — extrai na pasta de compactação
+     (padrão);
+   - **Restaurar em outra pasta...** — pergunta o destino.
+
+2. **Arquivo completo** — **Restaurar arquivo COMPLETO** extrai todo o
+   conteúdo, também com a pasta de compactação como destino padrão.
+
+> O destino padrão da restauração é a **pasta de compactação**
+> (`compactacao.destino`). Você pode trocar na hora, na caixa de diálogo.
+
+**Arquivos grandes:** a primeira abertura de um `.tar.gz` precisa descomprimir
+o arquivo só para listar o conteúdo, o que pode levar alguns minutos. A janela
+continua respondendo e mostra a contagem de itens; o botão **Cancelar leitura**
+interrompe. Depois da primeira leitura o índice fica em cache (pasta
+`indices/`, junto ao `agebackup.json`), então abrir o mesmo arquivo de novo é
+imediato — desde que ele não tenha sido alterado. A lista mostra no máximo
+2.000 itens por vez: use o **Filtro** para encontrar o que precisa.
+
+### Pela linha de comando
+
+Listar o conteúdo de um arquivo:
+
+```sh
+tar tzf /mnt/c/backups/bkps_RSKO_20261019-2200.tar.gz | less
+```
+
+Extrair só um arquivo (ou uma pasta):
+
+```sh
+# extrai apenas "Documentos/contrato.pdf" para /tmp/restaurado
+tar xzf /mnt/c/backups/bkps_RSKO_20261019-2200.tar.gz \
+    -C /tmp/restaurado "Documentos/contrato.pdf"
+```
+
+Extrair tudo:
+
+```sh
+mkdir -p /tmp/restaurado
+tar xzf /mnt/c/backups/bkps_RSKO_20261019-2200.tar.gz -C /tmp/restaurado
+```
+
+### Sequência com incrementais
+
+Um incremental **não** é autossuficiente: ele contém só o que mudou. Para
+recompor um estado, extraia o **full** e depois os incrementais **na ordem do
+nome** (que é cronológica), todos para a mesma pasta:
+
+```sh
+mkdir -p /tmp/restaurado
+tar xzf /mnt/c/backups/bkps_RSKO_20261019-2200.tar.gz     -C /tmp/restaurado
+tar xzf /mnt/c/backups/bkps_RSKO_inc_20261020-2200.tar.gz -C /tmp/restaurado
+tar xzf /mnt/c/backups/bkps_RSKO_inc_20261021-2200.tar.gz -C /tmp/restaurado
+```
+
+Os incrementais sobrescrevem com a versão mais nova apenas os arquivos que
+mudaram — o resto continua vindo do full.
 
 ---
 
@@ -893,6 +1137,24 @@ tail -20 /home/isaac/projetos/agebackup/logs/envio.log
 ---
 
 ## Problemas comuns
+
+### "No module named 'tkinter'" ao abrir a janela
+
+O Python não tem o Tkinter instalado. Instale e confira:
+
+```sh
+sudo apt update && sudo apt install -y python3-tk
+python3 -c "import tkinter; print('tkinter OK')"
+```
+
+Se você usa `uv`, pode ser preciso recriar o ambiente depois da instalação:
+`uv sync --reinstall`.
+
+### A janela não abre no WSL
+
+O WSL2 atualizado já traz o WSLg. Se ainda assim nada aparecer, confirme que
+está no WSL2 (`wsl -l -v` no Windows) e atualize o WSL. Em WSL1, é preciso um
+servidor X (ex.: VcXsrv) e configurar `export DISPLAY=:0`.
 
 ### "gcloud CLI não encontrado"
 
@@ -995,10 +1257,13 @@ sudo apt-get update && sudo apt-get install -y build-essential
 ```sh
 cd ~/projetos/agebackup
 
+uv run agebackup-gui              # abrir a janela única (configuração, backup, log...)
+
 uv run agebackup-setup            # configurar
 uv run agebackup-setup --status   # ver estado
 uv run agebackup-setup --test     # testar conexão
 uv run agebackup-setup --logs     # editar retenção dos logs
+uv run agebackup-setup --compactacao  # editar política de compactação
 uv run agebackup-setup --reset    # apagar configuração
 
 uv run agebackup-backup --dry-run # simular
@@ -1022,20 +1287,26 @@ uv run agebackup-compactar --dry-run # simular, sem gravar
 
 ```
 ~/projetos/agebackup/
+├── agebackup.json     # configuração (junto ao app; senha FTP criptografada)
 ├── src/agebackup/
 │   ├── backup.py      # motor do backup
 │   ├── cli.py         # comando agebackup-backup
 │   ├── compactacao.py # comando agebackup-compactar (.tar.gz do backup)
 │   ├── config.py      # configuração, credenciais e política de logs
+│   ├── config_paths.py# onde fica o agebackup.json (junto ao app) e migração
+│   ├── crypto_ftp.py  # criptografia da senha do FTP
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── falhas.py      # log de falhas
+│   ├── ftp.py         # comando agebackup-enviar (envio e conferência)
+│   ├── ftp_import.py  # importa credenciais .ini para o config.json
+│   ├── gui/           # aplicativo gráfico (Tkinter)
 │   ├── manifest.py    # manifesto e log de remoções
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação por execução e retenção dos logs
 │   ├── setup.py       # tela de configuração
 │   └── verificacao.py # verificação offline de integridade (--check)
-├── packaging/         # executável autônomo (PyInstaller)
-├── tests/             # 379 testes
+├── packaging/         # executáveis autônomos (PyInstaller)
+├── tests/             # suíte de testes
 └── .opencode/skills/  # documentação de referência
 ```
 

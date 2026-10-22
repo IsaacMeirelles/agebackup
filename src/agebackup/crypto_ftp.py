@@ -1,8 +1,17 @@
-"""Criptografia da senha FTP no arquivo de configuração."""
+"""Criptografia da senha FTP no arquivo de configuração.
+
+A senha fica cifrada com Fernet (``cryptography``). A chave é gerada na primeira
+gravação e guardada em ``.agebackup-ftp.key``, junto ao ``agebackup.json``, com
+permissão restrita. Sem a biblioteca ``cryptography`` instalada, a senha é
+guardada com uma ofuscação XOR (útil só para não deixá-la em texto puro, sem a
+mesma garantia criptográfica).
+"""
 
 from __future__ import annotations
 
 import base64
+import contextlib
+import hashlib
 import os
 from pathlib import Path
 
@@ -12,10 +21,13 @@ try:
     from cryptography.fernet import Fernet, InvalidToken
 
     _TEM_CRYPTO = True
-except Exception:
-    Fernet = None  # type: ignore
-    InvalidToken = Exception  # type: ignore
+except ImportError:  # ambiente sem a dependência opcional
+    Fernet = None  # type: ignore[assignment]
+    InvalidToken = ValueError  # type: ignore[assignment,misc]
     _TEM_CRYPTO = False
+
+# Marca do formato alternativo (sem ``cryptography``).
+PREFIXO_SIMPLES = "plain:"
 
 
 def _caminho_chave() -> Path:
@@ -23,71 +35,54 @@ def _caminho_chave() -> Path:
 
 
 def _obter_chave() -> bytes:
+    """Lê (ou cria) a chave usada para cifrar a senha."""
     caminho = _caminho_chave()
     if caminho.exists():
-        try:
-            return caminho.read_bytes().strip()
-        except Exception:
-            pass
+        with contextlib.suppress(OSError):
+            conteudo = caminho.read_bytes().strip()
+            if conteudo:
+                return conteudo
+
     if _TEM_CRYPTO:
         chave = Fernet.generate_key()
     else:
-        # Fallback simples (não é ideal, mas evita quebrar sem cryptography)
-        import hashlib
-
         chave = base64.urlsafe_b64encode(hashlib.sha256(os.urandom(32)).digest())
-    try:
+
+    with contextlib.suppress(OSError):
         caminho.parent.mkdir(parents=True, exist_ok=True)
         caminho.write_bytes(chave)
-        try:
-            os.chmod(caminho, 0o600)
-        except Exception:
-            pass
-    except Exception:
-        pass
+        os.chmod(caminho, 0o600)
     return chave
 
 
+def _xor(dados: bytes, chave: bytes) -> bytes:
+    return bytes(dados[i] ^ chave[i % len(chave)] for i in range(len(dados)))
+
+
 def criptografar(senha: str) -> str:
+    """Cifra a senha para guardar no ``agebackup.json``."""
     if not senha:
         return ""
+    chave = _obter_chave()
     if _TEM_CRYPTO and Fernet is not None:
-        try:
-            f = Fernet(_obter_chave())
-            return f.encrypt(senha.encode("utf-8")).decode("utf-8")
-        except Exception:
-            pass
-    # Fallback: base64 of xor - last resort
-    try:
-        import hashlib
-
-        chave = _obter_chave()
-        dados = senha.encode("utf-8")
-        xor = bytes([dados[i] ^ chave[i % len(chave)] for i in range(len(dados))])
-        return "plain:" + base64.b64encode(xor).decode("ascii")
-    except Exception:
-        return senha
+        return Fernet(chave).encrypt(senha.encode("utf-8")).decode("ascii")
+    return PREFIXO_SIMPLES + base64.b64encode(
+        _xor(senha.encode("utf-8"), chave)
+    ).decode("ascii")
 
 
 def descriptografar(valor: str) -> str:
+    """Devolve a senha em texto. Vazio quando não dá para decifrar."""
     if not valor:
         return ""
-    if valor.startswith("plain:"):
-        try:
-            import hashlib
-
-            chave = _obter_chave()
-            xor = base64.b64decode(valor[6:])
-            dados = bytes([xor[i] ^ chave[i % len(chave)] for i in range(len(xor))])
-            return dados.decode("utf-8")
-        except Exception:
-            return ""
+    chave = _obter_chave()
+    if valor.startswith(PREFIXO_SIMPLES):
+        with contextlib.suppress(ValueError):
+            return _xor(base64.b64decode(valor[len(PREFIXO_SIMPLES) :]), chave).decode(
+                "utf-8"
+            )
+        return ""
     if _TEM_CRYPTO and Fernet is not None:
-        try:
-            f = Fernet(_obter_chave())
-            return f.decrypt(valor.encode("utf-8")).decode("utf-8")
-        except InvalidToken:
-            return ""
-        except Exception:
-            return ""
+        with contextlib.suppress(InvalidToken, ValueError):
+            return Fernet(chave).decrypt(valor.encode("utf-8")).decode("utf-8")
     return ""

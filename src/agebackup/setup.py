@@ -12,11 +12,9 @@ from agebackup.config import (
     AUTH_ADC,
     AUTH_SERVICE_ACCOUNT,
     FULL_MAXIMO,
-    FULL_PADRAO_DIAS,
     LOGS_MAXIMO,
     LOGS_PADRAO_MANTER,
     MANTER_MAXIMO,
-    MANTER_PADRAO,
     READONLY_SCOPE,
     AccountConfig,
     BackupConfig,
@@ -99,9 +97,7 @@ def configurar_compactacao(existente: CompactacaoConfig) -> CompactacaoConfig:
     pasta_atual = existente.destino
     print(f"\n  Pasta atual: {pasta_atual or '(pasta acima do backup)'}")
     print("  Digite '-' para gravar na pasta acima do backup.")
-    pasta = _perguntar(
-        "Pasta dos arquivos compactados", pasta_atual, obrigatorio=False
-    )
+    pasta = _perguntar("Pasta dos arquivos compactados", pasta_atual, obrigatorio=False)
     if pasta == LIMPAR:
         pasta = ""
 
@@ -642,7 +638,9 @@ def editar_compactacao() -> int:
     print(f"  Arquivo: {caminho}")
     print(f"  Pasta: {atual.compactacao.destino or '(pasta acima do backup)'}")
     retencao = atual.compactacao.manter
-    print(f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} arquivo(s)'}")
+    print(
+        f"  Retencao: {'indeterminado' if retencao == 0 else f'{retencao} arquivo(s)'}"
+    )
     print(f"  Full: {atual.compactacao.texto_full_a_cada()}")
     return 0
 

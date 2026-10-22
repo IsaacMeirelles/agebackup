@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -21,14 +20,20 @@ class LogTab:
     def _criar(self):
         topo = ttk.Frame(self.frame)
         topo.pack(fill=tk.X)
-        ttk.Button(topo, text="Carregar agebackup-atualizar.log", command=self.carregar_atualizar).pack(
-            side=tk.LEFT
-        )
-        ttk.Button(topo, text="Carregar .agebackup-falhas.log", command=self.carregar_falhas).pack(
+        ttk.Button(
+            topo,
+            text="Carregar agebackup-atualizar.log",
+            command=self.carregar_atualizar,
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            topo, text="Carregar .agebackup-falhas.log", command=self.carregar_falhas
+        ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(topo, text="Abrir arquivo...", command=self.abrir_arquivo).pack(
             side=tk.LEFT, padx=2
         )
-        ttk.Button(topo, text="Abrir arquivo...", command=self.abrir_arquivo).pack(side=tk.LEFT, padx=2)
-        ttk.Button(topo, text="Copiar seleção", command=self.copiar).pack(side=tk.LEFT, padx=2)
+        ttk.Button(topo, text="Copiar seleção", command=self.copiar).pack(
+            side=tk.LEFT, padx=2
+        )
         ttk.Button(topo, text="Limpar", command=self.limpar).pack(side=tk.LEFT, padx=2)
         ttk.Label(topo, text="Filtro:").pack(side=tk.LEFT, padx=(10, 2))
         self.var_filtro = tk.StringVar()
@@ -36,7 +41,9 @@ class LogTab:
         ttk.Entry(topo, textvariable=self.var_filtro, width=30).pack(side=tk.LEFT)
         ttk.Label(topo, text="(caminho completo exibido)").pack(side=tk.RIGHT)
 
-        self.texto = scrolledtext.ScrolledText(self.frame, wrap=tk.WORD, font=("Consolas", 9))
+        self.texto = scrolledtext.ScrolledText(
+            self.frame, wrap=tk.WORD, font=("Consolas", 9)
+        )
         self.texto.pack(fill=tk.BOTH, expand=True, pady=5)
         self.conteudo_completo = ""
         self.lbl = ttk.Label(self.frame, text="")
@@ -49,18 +56,23 @@ class LogTab:
 
     def _carregar(self, caminho: Path):
         if not caminho.exists():
-            messagebox.showwarning("Arquivo não encontrado", f"Não encontrado:\n{caminho_completo(caminho)}")
+            messagebox.showwarning(
+                "Arquivo não encontrado",
+                f"Não encontrado:\n{caminho_completo(caminho)}",
+            )
             return
         try:
             dados = caminho.read_text(encoding="utf-8", errors="replace")
-        except Exception as e:
+        except (OSError, UnicodeError) as e:
             messagebox.showerror("Erro ao ler", str(e))
             return
         self.conteudo_completo = dados
         self.var_filtro.set("")
         self.texto.delete("1.0", tk.END)
         self.texto.insert(tk.END, dados)
-        self.lbl.config(text=f"Arquivo: {caminho_completo(caminho)} | Linhas: {dados.count(chr(10))+1}")
+        self.lbl.config(
+            text=f"Arquivo: {caminho_completo(caminho)} | Linhas: {dados.count(chr(10))+1}"
+        )
         if self.status_callback:
             self.status_callback(f"Log carregado: {caminho.name}")
 
@@ -77,7 +89,9 @@ class LogTab:
             self._carregar(Path.home() / ".agebackup-falhas.log")
 
     def abrir_arquivo(self):
-        arq = filedialog.askopenfilename(filetypes=[("Log", "*.log"), ("GZ", "*.gz"), ("Todos", "*.*")])
+        arq = filedialog.askopenfilename(
+            filetypes=[("Log", "*.log"), ("GZ", "*.gz"), ("Todos", "*.*")]
+        )
         if arq:
             self._carregar(Path(arq))
 
@@ -103,4 +117,6 @@ class LogTab:
         filtradas = [l for l in linhas if filtro in l.lower()]
         self.texto.delete("1.0", tk.END)
         self.texto.insert(tk.END, "".join(filtradas))
-        self.lbl.config(text=f"Filtrado: {len(filtradas)}/{len(linhas)} linha(s) | contém '{filtro}'")
+        self.lbl.config(
+            text=f"Filtrado: {len(filtradas)}/{len(linhas)} linha(s) | contém '{filtro}'"
+        )

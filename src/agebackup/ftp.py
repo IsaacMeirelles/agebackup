@@ -206,7 +206,7 @@ def pasta_remota(momento: datetime, base: str = "", padrao: str = "") -> str:
             return padrao_aplicado
         # Se não começar com /, adiciona /
         return "/" + padrao_aplicado.strip("/")
-    
+
     partes = [base.strip().strip("/")] if base.strip().strip("/") else []
     partes.extend([f"{momento:%Y}", f"{momento:%m}"])
     return "/" + "/".join(partes)
@@ -895,7 +895,7 @@ def obter_credenciais(cfg=None, caminho_ini: Path | None = None) -> CredenciaisF
     if cfg is None:
         try:
             cfg = config_mod.load()
-        except Exception:
+        except config_mod.ConfigError, OSError:
             cfg = None
 
     if cfg is not None and getattr(cfg, "ftp", None) and cfg.ftp.tem_dados():

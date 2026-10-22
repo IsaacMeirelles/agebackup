@@ -11,13 +11,5 @@ def caminho_completo(caminho: str | Path | None) -> str:
         return ""
     try:
         return str(Path(caminho).expanduser().resolve())
-    except Exception:
-        try:
-            return str(caminho)
-        except Exception:
-            return ""
-
-
-def formatar_caminho(caminho: str | Path | None) -> str:
-    """Alias para uso em mensagens de log."""
-    return caminho_completo(caminho)
+    except OSError, RuntimeError, ValueError:
+        return str(caminho)

@@ -5,7 +5,8 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
-from agebackup import backup, config as config_mod
+from agebackup import backup
+from agebackup import config as config_mod
 from agebackup.logging_paths import caminho_completo
 
 from .utils import ThreadedRunner
@@ -34,40 +35,44 @@ class BackupTab:
         frame_log = ttk.LabelFrame(self.frame, text="Execução em tempo real", padding=5)
         frame_log.pack(fill=tk.BOTH, expand=True, pady=5)
 
-        self.log = scrolledtext.ScrolledText(frame_log, wrap=tk.WORD, font=("Consolas", 9))
+        self.log = scrolledtext.ScrolledText(
+            frame_log, wrap=tk.WORD, font=("Consolas", 9)
+        )
         self.log.pack(fill=tk.BOTH, expand=True)
         self.log.configure(state=tk.DISABLED)
 
-        self.contadores = ttk.Label(self.frame, text="Baixados: 0 | Inalterados: 0 | Movidos: 0 | Falhas: 0")
+        self.contadores = ttk.Label(
+            self.frame, text="Baixados: 0 | Inalterados: 0 | Movidos: 0 | Falhas: 0"
+        )
         self.contadores.pack(anchor=tk.W)
 
     def limpar(self):
         self.log.configure(state=tk.NORMAL)
         self.log.delete("1.0", tk.END)
         self.log.configure(state=tk.DISABLED)
-        self.contadores.config(text="Baixados: 0 | Inalterados: 0 | Movidos: 0 | Falhas: 0")
+        self.contadores.config(
+            text="Baixados: 0 | Inalterados: 0 | Movidos: 0 | Falhas: 0"
+        )
 
     def _log(self, msg):
-        texto = f"{msg}"
-        # Garante caminho completo quando possível
-        try:
-            # Não força se já parecer absoluto; adiciona contexto se for caminho
-            if texto.startswith("/") or ":" in texto[:3]:
-                pass
-        except Exception:
-            pass
         self.log.configure(state=tk.NORMAL)
-        self.log.insert(tk.END, texto + "\n")
+        self.log.insert(tk.END, f"{msg}\n")
         self.log.see(tk.END)
         self.log.configure(state=tk.DISABLED)
 
     def iniciar(self):
         cfg = config_mod.load()
         if cfg is None:
-            messagebox.showerror("Configuração não encontrada", "Configure o backup primeiro na aba Configuração.")
+            messagebox.showerror(
+                "Configuração não encontrada",
+                "Configure o backup primeiro na aba Configuração.",
+            )
             return
         if not cfg.backup.destination:
-            messagebox.showerror("Destino não definido", "Informe a pasta de destino na aba Configuração.")
+            messagebox.showerror(
+                "Destino não definido",
+                "Informe a pasta de destino na aba Configuração.",
+            )
             return
         self.btn_iniciar.configure(state=tk.DISABLED)
         self.limpar()

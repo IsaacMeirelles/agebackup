@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-import os
 import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from agebackup import compactacao, config as config_mod
+from agebackup import compactacao
+from agebackup import config as config_mod
 from agebackup.logging_paths import caminho_completo
 
 from .utils import ThreadedRunner, formatar_tamanho
@@ -24,11 +24,21 @@ class CompactTab:
     def _criar(self):
         topo = ttk.Frame(self.frame)
         topo.pack(fill=tk.X)
-        ttk.Button(topo, text="Seguir política (auto)", command=self.compactar_auto).pack(side=tk.LEFT)
-        ttk.Button(topo, text="Forçar FULL", command=self.forcar_full).pack(side=tk.LEFT, padx=2)
-        ttk.Button(topo, text="Forçar INCREMENTAL", command=self.forcar_inc).pack(side=tk.LEFT, padx=2)
-        ttk.Button(topo, text="Aplicar retenção", command=self.aplicar_retencao).pack(side=tk.LEFT, padx=2)
-        ttk.Button(topo, text="Atualizar lista", command=self.atualizar_lista).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            topo, text="Seguir política (auto)", command=self.compactar_auto
+        ).pack(side=tk.LEFT)
+        ttk.Button(topo, text="Forçar FULL", command=self.forcar_full).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(topo, text="Forçar INCREMENTAL", command=self.forcar_inc).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(topo, text="Aplicar retenção", command=self.aplicar_retencao).pack(
+            side=tk.LEFT, padx=2
+        )
+        ttk.Button(topo, text="Atualizar lista", command=self.atualizar_lista).pack(
+            side=tk.LEFT, padx=2
+        )
 
         cols = ("arquivo", "tipo", "tamanho", "caminho_completo")
         self.tree = ttk.Treeview(self.frame, columns=cols, show="headings", height=12)
@@ -60,21 +70,21 @@ class CompactTab:
         if not pasta.exists():
             self.lbl_info.config(text=f"Pasta não existe: {caminho_completo(pasta)}")
             return
-        arquivos = sorted(pasta.glob("*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True)
+        arquivos = sorted(
+            pasta.glob("*.tar.gz"), key=lambda p: p.stat().st_mtime, reverse=True
+        )
         for arq in arquivos:
-            nome = arq.name
-            if nome.endswith("_inc_"):
-                tipo = "INCREMENTAL"
-            elif "_inc_" in nome:
-                tipo = "INCREMENTAL"
-            else:
-                tipo = "FULL"
+            tipo = "INCREMENTAL" if "_inc_" in arq.name else "FULL"
             try:
                 tam = formatar_tamanho(arq.stat().st_size)
             except OSError:
                 tam = "-"
-            self.tree.insert("", tk.END, values=(nome, tipo, tam, caminho_completo(arq)))
-        self.lbl_info.config(text=f"{len(arquivos)} arquivo(s) compactado(s) em {caminho_completo(pasta)}")
+            self.tree.insert(
+                "", tk.END, values=(arq.name, tipo, tam, caminho_completo(arq))
+            )
+        self.lbl_info.config(
+            text=f"{len(arquivos)} arquivo(s) compactado(s) em {caminho_completo(pasta)}"
+        )
 
     def _rodar(self, args):
         runner = ThreadedRunner(self.frame.winfo_toplevel())
@@ -116,7 +126,11 @@ class CompactTab:
             base = nome_base
         removidos = compactacao._aplicar_retencao(pasta, base, cfg.compactacao.manter)
         if removidos:
-            messagebox.showinfo("Retenção aplicada", f"{len(removidos)} arquivo(s) removido(s).")
+            messagebox.showinfo(
+                "Retenção aplicada", f"{len(removidos)} arquivo(s) removido(s)."
+            )
         else:
-            messagebox.showinfo("Retenção", "Nenhum arquivo removido (manter=0 ou dentro do limite).")
+            messagebox.showinfo(
+                "Retenção", "Nenhum arquivo removido (manter=0 ou dentro do limite)."
+            )
         self.atualizar_lista()

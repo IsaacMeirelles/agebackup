@@ -7,7 +7,6 @@ from tkinter import ttk
 
 from .utils import centralizar_janela
 
-
 AJUDA_TUTORIAL = """AGEBACKUP - TUTORIAL POR ABA
 
 INÍCIO/STATUS
@@ -90,6 +89,8 @@ class HelpDialog:
 
         botoes = ttk.Frame(self.janela, padding=(10, 5))
         botoes.pack(fill=tk.X)
-        ttk.Button(botoes, text="Fechar", command=self.janela.destroy).pack(side=tk.RIGHT)
+        ttk.Button(botoes, text="Fechar", command=self.janela.destroy).pack(
+            side=tk.RIGHT
+        )
         self.janela.bind("<Escape>", lambda e: self.janela.destroy())
         self.janela.bind("<F1>", lambda e: self.janela.destroy())

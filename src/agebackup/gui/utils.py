@@ -2,34 +2,100 @@
 
 from __future__ import annotations
 
+import queue
 import threading
-import time
 import tkinter as tk
-from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import messagebox
+
+# Intervalo (ms) com que a thread principal verifica a fila de resultados.
+INTERVALO_POLL = 150
 
 
 class ThreadedRunner:
-    """Executa função em thread sem travar a interface."""
+    """Executa uma função em segundo plano sem travar a interface.
 
-    def __init__(self, root: tk.Tk):
+    Tkinter **não é thread-safe**: chamar `after`, widgets ou `messagebox` de
+    dentro de uma thread de trabalho pode travar o interpretador Tcl. Por isso a
+    thread apenas deposita o resultado numa fila, e a thread principal a
+    consulta periodicamente com `after`.
+    """
+
+    def __init__(self, root: tk.Misc):
         self.root = root
+        self._fila: queue.Queue = queue.Queue()
 
     def run(self, func, *args, on_done=None, on_error=None, **kwargs):
-        def _wrap():
+        """Inicia `func(*args, **kwargs)` em segundo plano.
+
+        `on_done`/`on_error` são chamados na thread principal (podem mexer na
+        interface sem risco).
+        """
+
+        def _trabalho():
             try:
                 resultado = func(*args, **kwargs)
-                if on_done:
-                    self.root.after(0, lambda r=resultado: on_done(r))
-            except Exception as exc:
-                if on_error:
-                    self.root.after(0, lambda e=exc: on_error(e))
-                else:
-                    self.root.after(0, lambda e=exc: messagebox.showerror("Erro", str(e)))
+            # Fronteira da interface: qualquer falha da tarefa vira mensagem
+            # para o usuário, então capturar Exception de propósito.
+            except Exception as exc:  # noqa: BLE001
+                self._fila.put(("erro", exc))
+            else:
+                self._fila.put(("ok", resultado))
 
-        thread = threading.Thread(target=_wrap, daemon=True)
-        thread.start()
-        return thread
+        threading.Thread(target=_trabalho, daemon=True).start()
+        self._aguardar(on_done, on_error)
+
+    def _aguardar(self, on_done, on_error):
+        try:
+            tipo, valor = self._fila.get_nowait()
+        except queue.Empty:
+            self.root.after(INTERVALO_POLL, lambda: self._aguardar(on_done, on_error))
+            return
+
+        if tipo == "ok":
+            if on_done is not None:
+                on_done(valor)
+        elif on_error is not None:
+            on_error(valor)
+        else:
+            messagebox.showerror("Erro", str(valor))
+
+
+class Progresso:
+    """Compartilha progresso entre a thread de trabalho e a interface.
+
+    A thread só chama `atualizar(valor)` (operação simples, sem tocar no
+    Tkinter). A thread principal lê o valor com `after` e chama o callback.
+    """
+
+    def __init__(self, root: tk.Misc, callback, intervalo: int = 250):
+        self.root = root
+        self.callback = callback
+        self.intervalo = intervalo
+        self._valor = None
+        self._parado = False
+        self._agendar()
+
+    def atualizar(self, valor):
+        """Chamado da thread de trabalho: apenas guarda o valor."""
+        self._valor = valor
+
+    def parar(self):
+        """Chamado da thread principal: encerra o polling."""
+        self._parado = True
+
+    def _agendar(self):
+        self.root.after(self.intervalo, self._tick)
+
+    def _tick(self):
+        if self._parado:
+            return
+        if self._valor is not None:
+            try:
+                self.callback(self._valor)
+            except tk.TclError:
+                return
+            self._valor = None
+        self._agendar()
 
 
 def escolher_arquivo(parent, title="Selecionar arquivo", **kwargs):

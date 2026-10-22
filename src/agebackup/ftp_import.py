@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from agebackup import config as config_mod
-from agebackup import crypto_ftp
-from agebackup import ftp
+from agebackup import crypto_ftp, ftp
 
 
 def importar_do_ini(caminho_ini: Path | None = None) -> bool:
