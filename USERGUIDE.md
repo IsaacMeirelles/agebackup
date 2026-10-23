@@ -575,8 +575,13 @@ awk -F'\t' '$3=="operacao_longa" {print $2}' ~/agebackup/logs/.agebackup-falhas.
 Local: `.agebackup-falhas.log`. Formato TSV, uma linha por falha:
 
 ```
-data<TAB>nome<TAB>categoria<TAB>tentativas<TAB>drive_id<TAB>detalhe
+data<TAB>nome<TAB>categoria<TAB>tentativas<TAB>drive_id<TAB>detalhe<TAB>caminho<TAB>modificado
 ```
+
+As duas últimas colunas são o **caminho local completo** onde o arquivo deveria
+estar e a **data de modificação no Drive** (ISO 8601), para localizar o item sem
+precisar procurá-lo pelo nome. Logs gravados por versões anteriores têm só as
+seis primeiras colunas e continuam legíveis.
 
 ### Consultar
 
@@ -612,7 +617,8 @@ guardados (configurável).
 ├── .agebackup-falhas.2026-10-20-0300.log.gz
 ├── .agebackup-removidos.log
 ├── .agebackup-removidos.2026-10-21-1842.log.gz
-└── .agebackup-mes                               # marca da última execução
+├── .agebackup-envios.log                        # status dos envios ao FTP
+└── .agebackup-envios.2026-10-21-1842.log.gz
 ```
 
 Ler um log compactado:
@@ -678,15 +684,19 @@ cronológica).
 
 ### Como a virada é detectada
 
-O agebackup guarda o selo da execução (data e hora) num arquivo de marca,
-`.agebackup-mes`. Isso é deliberado: usar a data de modificação do log seria
-impreciso, porque gravar na execução corrente atualiza essa data e poderia
-esconder um log antigo.
+A rotação roda **no início da execução, antes de qualquer escrita**. Se um log
+existir nesse momento, ele é da execução anterior e é fechado com a data/hora do
+próprio arquivo (mtime). Cada log tem seu ciclo: `.agebackup-falhas.log`,
+`.agebackup-removidos.log` e `.agebackup-envios.log` são rotacionados de forma
+independente.
 
-A rotação acontece uma vez por execução do backup e é idempotente: rodar
-várias vezes no mesmo minuto não faz nada além do necessário. Se um log de
-execução anterior ficar pendente (execução interrompida), ele é comprimido na
-próxima execução, mesmo dentro da mesma execução.
+> Versões anteriores usavam um arquivo de marca, `.agebackup-mes`, para decidir
+> a virada. Ele **não é mais criado**; se existir numa instalação antiga, é
+> removido na próxima execução do backup e ignorado pela conferência.
+
+A rotação é idempotente: rodar várias vezes sem um log corrente não faz nada
+além do necessário. Se um log de execução anterior ficar pendente (execução
+interrompida), ele é comprimido na próxima execução.
 
 ### Economia de espaço
 
@@ -849,6 +859,7 @@ uv run agebackup-enviar
 
   enviando... 100.0%  (13.2 GB de 13.2 GB)
   conferindo no servidor...
+  Status   : /home/isaac/agebackup/logs/.agebackup-envios.log
 
   Arquivo  : bkps_RSKO_20261021-2244.tar.gz
   Local    : 12.9 GB
@@ -875,7 +886,8 @@ aconteceu sem depender da máquina local:
 └── logs/
     ├── .agebackup-falhas.log                     # execução corrente
     ├── .agebackup-falhas.2026-10-20-0300.log.gz  # execuções fechadas
-    └── .agebackup-removidos.log
+    ├── .agebackup-removidos.log
+    └── .agebackup-envios.log                     # status dos envios
 ```
 
 Os logs fechados **já vão comprimidos** (`.log.gz`), pela rotação do Passo 8; o
@@ -885,6 +897,40 @@ servidor, igual ao `.tar.gz`. Para pular esse passo:
 ```sh
 uv run agebackup-enviar --sem-logs
 ```
+
+### Log de status dos envios
+
+Toda tentativa de envio — pelo comando `agebackup-enviar` ou pela aba **Upload
+Manual** — acrescenta uma linha em **`.agebackup-envios.log`**, na pasta de logs
+do backup. O envio que falha também é registrado, para você saber o que faltou.
+
+O formato é TSV, uma linha por arquivo:
+
+```
+data<TAB>status<TAB>arquivo<TAB>caminho<TAB>tamanho_local<TAB>tamanho_remoto<TAB>pasta_remota<TAB>conferencia<TAB>detalhe
+```
+
+| Coluna | Conteúdo |
+| --- | --- |
+| `data` | data/hora da tentativa (ISO 8601) |
+| `status` | `ok` ou `falha` |
+| `arquivo` | nome do arquivo enviado |
+| `caminho` | caminho local **completo** |
+| `tamanho_local` / `tamanho_remoto` | bytes; remoto `0` quando não conferido |
+| `pasta_remota` | pasta calculada no servidor |
+| `conferencia` | `tamanho`, `sha256` ou vazio |
+| `detalhe` | mensagem de erro, quando houver |
+
+Exemplo:
+
+```
+2026-10-22T22:10:03+00:00	falha	bkps_RSKO_20261021-2244.tar.gz	/mnt/c/backups/bkps_RSKO_20261021-2244.tar.gz	13841203200	0	/2026/10	tamanho	tamanho diferente no servidor: local 13841203200B, remoto 0B
+```
+
+Pela interface, abra a aba **Log** e clique em **Carregar
+.agebackup-envios.log**; o filtro `falha` mostra só o que não subiu. O arquivo
+é rotacionado junto com os demais logs (quando a rotação está ativa) e mantém os
+`keep_logs` mais recentes.
 
 ### Credenciais
 
@@ -1312,6 +1358,7 @@ uv run agebackup-compactar --dry-run # simular, sem gravar
 │   ├── config_paths.py# onde fica o agebackup.json (junto ao app) e migração
 │   ├── crypto_ftp.py  # criptografia da senha do FTP
 │   ├── drive.py       # cliente da Drive API e download
+│   ├── envios.py      # log de status dos envios ao FTP
 │   ├── falhas.py      # log de falhas
 │   ├── ftp.py         # comando agebackup-enviar (envio e conferência)
 │   ├── ftp_import.py  # importa credenciais .ini para o config.json

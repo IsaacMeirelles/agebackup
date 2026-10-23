@@ -25,12 +25,16 @@ from pathlib import Path
 
 from agebackup import manifest as manifest_mod
 from agebackup.backup import companheiras
+from agebackup.envios import ENVIOS_NAME
 from agebackup.falhas import FALHAS_NAME
 from agebackup.manifest import MANIFEST_NAME, REMOCIDOS_NAME
-from agebackup.rotacao import MARCA_NAME
 
 # Extensão dos parciais gravados por manifest.salvar e downloads interrompidos.
 SUFIXO_TMP = ".tmp"
+
+# Marca usada por versões antigas da rotação. Não é mais criada, mas instalações
+# existentes podem tê-la; continua sendo ignorada na conferência.
+MARCA_LEGADA = ".agebackup-mes"
 
 
 @dataclass
@@ -66,10 +70,16 @@ def _manifesto_inutilizavel(destino: Path) -> bool:
 
 def _interno(nome: str) -> bool:
     """Arquivos internos do AgeBackup: nunca são arquivo "fora do manifesto"."""
-    if nome in (MANIFEST_NAME, REMOCIDOS_NAME, FALHAS_NAME, MARCA_NAME):
+    if nome in (
+        MANIFEST_NAME,
+        REMOCIDOS_NAME,
+        FALHAS_NAME,
+        ENVIOS_NAME,
+        MARCA_LEGADA,
+    ):
         return True
-    # Logs de meses anteriores, comprimidos pela rotação.
-    return nome.startswith((f"{REMOCIDOS_NAME}.", f"{FALHAS_NAME}."))
+    # Logs de execuções anteriores, comprimidos pela rotação.
+    return nome.startswith((f"{REMOCIDOS_NAME}.", f"{FALHAS_NAME}.", f"{ENVIOS_NAME}."))
 
 
 def verificar(destino: Path) -> ResultadoCheck:

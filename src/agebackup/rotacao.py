@@ -4,18 +4,20 @@ Cada execução começa um log novo, com data e hora no nome. A rotação fecha 
 log da execução anterior e guarda apenas os mais recentes, para o histórico não
 crescer sem limite.
 
-O nome do arquivo do mês corrente é `<nome>.log` (ex.:
+O nome do arquivo da execução corrente é `<nome>.log` (ex.:
 `.agebackup-falhas.log`). Na virada, ele vira
-`<nome>.<AAAA-MM-DD>-<HHMM>.log.gz` — a data/hora é a do fechamento — e um
-`.log` novo começa. Exemplo:
+`<nome>.<AAAA-MM-DD>-<HHMM>.log.gz` — a data/hora é a da última gravação da
+execução anterior — e um `.log` novo começa. Exemplo:
 
     .agebackup-falhas.log                       # execução em andamento
     .agebackup-falhas.2026-10-21-1842.log.gz    # execução anterior, comprimida
     .agebackup-falhas.2026-10-20-0300.log.gz    # mais antiga, comprimida
 
-A fronteira entre execuções é decidida por um arquivo de marca
-(`.agebackup-mes`), e não pelo mtime do log: escrever no log corrente atualiza o
-mtime e faria um log antigo passar "despercebido".
+A virada é detectada no início de cada execução: a rotação só é chamada antes
+de qualquer escrita, então qualquer log encontrado ali pertence à execução
+anterior. O selo usado no nome é o mtime desse log, ou seja, o momento em que a
+execução anterior gravou pela última vez. Não é preciso criar arquivo de marca
+(versões antigas usavam `.agebackup-mes`; ele não é mais lido nem gerado).
 
 A compactação usa gzip, nativo da biblioteca padrão, sem dependências extras.
 """
@@ -29,8 +31,6 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-
-MARCA_NAME = ".agebackup-mes"
 
 # Nome de um log já fechado: <nome>.<AAAA-MM-DD>-<HHMM>.log.gz
 # Também aceita o formato antigo, só com o mês (<nome>.<AAAA-MM>.log.gz), para
@@ -46,10 +46,6 @@ def _stamp(momento: datetime) -> str:
 def _stamp_mes(momento: datetime) -> str:
     """Selo mensal (``2026-10``), usado só pelo formato antigo."""
     return f"{momento:%Y-%m}"
-
-
-def caminho_marca(destino: Path) -> Path:
-    return destino / MARCA_NAME
 
 
 def caminho_do_mes(log: Path, momento: datetime) -> Path:
@@ -84,26 +80,13 @@ class ResultadoRotacao:
     erro: str = ""
 
 
-def _ler_marca(destino: Path) -> str | None:
-    """Devolve o selo registrado na marca, ou None se não houver."""
-    marca = caminho_marca(destino)
-    if not marca.exists():
-        return None
+def _selo_do_log(log: Path) -> str | None:
+    """Selo da execução anterior, tirado do mtime do log corrente."""
     try:
-        return marca.read_text(encoding="utf-8").strip() or None
+        mtime = log.stat().st_mtime
     except OSError:
         return None
-
-
-def _escrever_marca(destino: Path, selo: str) -> None:
-    """Registra o selo corrente na marca, de forma atômica."""
-    marca = caminho_marca(destino)
-    parcial = marca.with_name(f"{marca.name}.tmp")
-    try:
-        parcial.write_text(selo, encoding="utf-8")
-        os.replace(parcial, marca)
-    except OSError:
-        parcial.unlink(missing_ok=True)
+    return _stamp(datetime.fromtimestamp(mtime, tz=UTC))
 
 
 def _data_do_selo(selo: str) -> datetime | None:
@@ -156,53 +139,44 @@ def aplicar_retencao(
 
 def rotacionar(
     log: Path,
-    agora: datetime | None = None,
     manter: int = 0,
     comprimir: bool = True,
 ) -> ResultadoRotacao:
     """Fecha o log da execução anterior e comprime os logs antigos.
 
-    Decide a virada comparando o selo atual com o registrado na marca. Com
-    `manter` maior que zero, apaga os logs fechados além dos N mais recentes.
+    Deve ser chamado no início da execução, antes de escrever no log. Se o
+    arquivo existir nesse momento, ele é da execução anterior e vira
+    `<nome>.<AAAA-MM-DD>-<HHMM>.log.gz`, com o selo tirado do mtime.
 
-    Idempotente: chamar várias vezes com o mesmo `agora` não faz nada além do
-    necessário.
+    Com `manter` maior que zero, apaga os logs fechados além dos N mais
+    recentes. Idempotente: chamar de novo sem um log corrente não faz nada.
 
     Args:
         log: caminho do log corrente, ex.: `pasta/.agebackup-falhas.log`.
-        agora: momento de referência. Use o momento atual.
         manter: quantos logs fechados guardar. 0 guarda todos.
         comprimir: quando False, apenas move o log anterior sem comprimir.
 
     Returns:
         Lista dos arquivos comprimidos, dos apagados e eventual erro.
     """
-    momento = agora or datetime.now(UTC)
-    selo = _stamp(momento)
-    destino = log.parent
     comprimidos: list[Path] = []
     removidos: list[Path] = []
     erro = ""
 
     try:
-        selo_marcado = _ler_marca(destino)
-
-        if selo_marcado is None:
-            # Primeira execução: fixa a fronteira sem mover nada.
-            _escrever_marca(destino, selo)
-        elif selo_marcado != selo:
-            fechado = _fechar_execucao(log, selo_marcado)
+        selo_anterior = _selo_do_log(log)
+        if selo_anterior is not None:
+            fechado = _fechar_execucao(log, selo_anterior)
             if fechado is not None:
                 if comprimir:
                     comprimidos.append(_comprimir(fechado))
                 else:
                     removidos.append(fechado)
-            _escrever_marca(destino, selo)
 
         # Logs de execuções anteriores podem ter ficado soltos (execução
         # anterior falhou). Comprime sempre que encontrar, não só na virada.
         if comprimir:
-            _compactar_antigos(log, selo, comprimidos, removidos)
+            _compactar_antigos(log, comprimidos, removidos)
 
         aplicar_retencao(log, manter, removidos)
     except OSError as exc:
@@ -235,12 +209,11 @@ def _fechar_execucao(log: Path, selo_anterior: str) -> Path | None:
 
 
 def _compactar_antigos(
-    log: Path, selo_atual: str, comprimidos: list[Path], removidos: list[Path]
+    log: Path, comprimidos: list[Path], removidos: list[Path]
 ) -> None:
     """Comprime os `.log` de execuções anteriores que ainda estão soltos."""
     for candidato in sorted(log.parent.glob(f"{log.name}.*.log")):
-        selo = selo_do_arquivo(candidato.name, log.name)
-        if selo is None or selo == selo_atual:
+        if selo_do_arquivo(candidato.name, log.name) is None:
             continue
 
         try:
@@ -250,14 +223,24 @@ def _compactar_antigos(
 
 
 def _comprimir(arquivo: Path) -> Path:
-    """Comprime em gzip e remove o original. Devolve o caminho comprimido."""
+    """Comprime em gzip e remove o original. Devolve o caminho comprimido.
+
+    Se o destino já existir (duas execuções no mesmo minuto), acrescenta um
+    novo membro gzip em vez de sobrescrever. O resultado continua legível: o
+    gzip e o ``zcat`` leem membros concatenados.
+    """
     destino = arquivo.with_name(f"{arquivo.name}.gz")
     parcial = destino.with_name(f"{destino.name}.tmp")
 
     with arquivo.open("rb") as origem, gzip.open(parcial, "wb") as saida:
         shutil.copyfileobj(origem, saida)
 
-    os.replace(parcial, destino)
+    if destino.exists():
+        with destino.open("ab") as saida, parcial.open("rb") as novo:
+            shutil.copyfileobj(novo, saida)
+        parcial.unlink()
+    else:
+        os.replace(parcial, destino)
     arquivo.unlink()
     return destino
 

@@ -815,6 +815,9 @@ def test_backup_grava_log_de_falhas(service, config, tmp_path):
     log = destino / "logs" / ".agebackup-falhas.log"
     assert log.exists()
     assert "a.txt" in log.read_text(encoding="utf-8")
+    linha = falhas_mod.ler(destino / "logs")[0]
+    assert linha["caminho"].endswith("/a.txt")
+    assert linha["modificado"] != ""
 
 
 def test_backup_registra_categoria_da_falha(service, config, tmp_path):
@@ -1297,8 +1300,7 @@ def test_rotacao_desativada_nao_comprime(service, config, tmp_path):
     _FakeDrive.arquivos = [_arquivo("F1", "a.txt")]
     config.logs.enabled = False
     destino = tmp_path / "backup"
-    (destino / "logs" / ".agebackup-mes").parent.mkdir(parents=True, exist_ok=True)
-    (destino / "logs" / ".agebackup-mes").write_text("2026-09")
+    (destino / "logs").mkdir(parents=True, exist_ok=True)
     (destino / "logs" / ".agebackup-falhas.log").write_text(
         "antigo\n", encoding="utf-8"
     )
@@ -1389,13 +1391,31 @@ def test_rotacao_comprime_dentro_da_subpasta(service, config, tmp_path):
     config.logs.keep_months = 0
     pasta_logs = tmp_path / "backup" / "logs"
     pasta_logs.mkdir(parents=True)
-    (pasta_logs / ".agebackup-falhas.log").write_text("antigo\n", encoding="utf-8")
-    (pasta_logs / ".agebackup-mes").write_text("2020-01", encoding="utf-8")
+    log_antigo = pasta_logs / ".agebackup-falhas.log"
+    log_antigo.write_text("antigo\n", encoding="utf-8")
+    os.utime(log_antigo, (0, 0))
     _FakeDrive.arquivos = []
 
     executar_backup(service, config, tmp_path / "backup")
 
     assert list(pasta_logs.glob("*.gz")), "o mês anterior deve ser comprimido ali"
+
+
+def test_rotacao_inclui_envios_e_remove_marca_antiga(service, config, tmp_path):
+    pasta_logs = tmp_path / "backup" / "logs"
+    pasta_logs.mkdir(parents=True)
+    for nome in (".agebackup-envios.log", ".agebackup-falhas.log"):
+        arquivo = pasta_logs / nome
+        arquivo.write_text("status antigo\n", encoding="utf-8")
+        os.utime(arquivo, (0, 0))
+    (pasta_logs / ".agebackup-mes").write_text("2026-10", encoding="utf-8")
+    _FakeDrive.arquivos = []
+
+    executar_backup(service, config, tmp_path / "backup")
+
+    assert list(pasta_logs.glob(".agebackup-envios.*.log.gz"))
+    assert list(pasta_logs.glob(".agebackup-falhas.*.log.gz"))
+    assert not (pasta_logs / ".agebackup-mes").exists()
 
 
 def test_reconstruir_pendentes_usa_log_e_manifesto(

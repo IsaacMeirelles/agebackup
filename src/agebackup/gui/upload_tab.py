@@ -8,6 +8,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from agebackup import config as config_mod
+from agebackup import envios as envios_mod
 from agebackup import ftp
 from agebackup.config import ConfigError
 from agebackup.logging_paths import caminho_completo
@@ -74,6 +75,22 @@ class UploadTab:
             getattr(cfg.ftp, "pasta_remota", "") if getattr(cfg, "ftp", None) else ""
         )
 
+    @staticmethod
+    def _registro_envio(resultado, pasta_remota, arquivo=""):
+        """Converte um ResultadoEnvio no registro persistente do log."""
+        return envios_mod.de_resultado(resultado, pasta_remota, arquivo)
+
+    def _registrar_status(self, cfg, registros):
+        """Grava o status no log persistente e avisa o caminho."""
+        if not registros:
+            return
+        destino = Path(cfg.backup.destination).expanduser()
+        log = envios_mod.registrar(cfg.logs.pasta(destino), registros)
+        if log is None:
+            self._log("Aviso: não foi possível gravar o log de status do envio")
+        else:
+            self._log(f"Status registrado em {caminho_completo(log)}")
+
     def procurar(self):
         arq = filedialog.askopenfilename(
             filetypes=[("Tar.gz", "*.tar.gz"), ("Todos", "*.*")]
@@ -133,6 +150,9 @@ class UploadTab:
             )
 
         def _ok(r):
+            self._registrar_status(
+                cfg, [self._registro_envio(r, pasta_destino, arquivo=arquivo)]
+            )
             if r.erro:
                 self._log(f"ERRO: {r.erro}")
                 messagebox.showerror("Erro no envio", r.erro)
@@ -144,6 +164,18 @@ class UploadTab:
                 self.status_callback("Upload concluído")
 
         def _err(e):
+            self._registrar_status(
+                cfg,
+                [
+                    envios_mod.Envio(
+                        arquivo=Path(arquivo).name,
+                        caminho=caminho_completo(arquivo),
+                        status=envios_mod.STATUS_FALHA,
+                        pasta_remota=pasta_destino,
+                        detalhe=str(e),
+                    )
+                ],
+            )
             self._log(f"ERRO: {e}")
             messagebox.showerror("Erro no envio", str(e))
 
@@ -163,19 +195,26 @@ class UploadTab:
             messagebox.showerror("Erro", str(e))
             return
         padrao_ftp = self._padrao_ftp(cfg)
+        momento = datetime.now()
+        pasta_remota_logs = ftp.pasta_de_logs(momento, cred.pasta, padrao_ftp)
         runner = ThreadedRunner(self.frame.winfo_toplevel())
         self._log(f"Enviando logs de {caminho_completo(pasta_logs)}...")
-        self._log(
-            "Pasta remota: "
-            f"{ftp.pasta_de_logs(datetime.now(), cred.pasta, padrao_ftp)}"
-        )
+        self._log(f"Pasta remota: {pasta_remota_logs}")
 
         def _exec():
             return ftp.enviar_logs(
-                pasta_logs, cred, manter=cfg.envio.manter, padrao=padrao_ftp
+                pasta_logs,
+                cred,
+                momento=momento,
+                manter=cfg.envio.manter,
+                padrao=padrao_ftp,
             )
 
         def _ok(resultados):
+            self._registrar_status(
+                cfg,
+                [self._registro_envio(r, pasta_remota_logs) for r in resultados],
+            )
             enviados = [r for r in resultados if r.enviado and not r.erro]
             falhas = [r for r in resultados if r.erro]
             self._log(f"Logs enviados: {len(enviados)} arquivo(s)")
@@ -194,6 +233,18 @@ class UploadTab:
                 self._log("Nenhum log encontrado para enviar.")
 
         def _err(e):
+            self._registrar_status(
+                cfg,
+                [
+                    envios_mod.Envio(
+                        arquivo=envios_mod.ENVIOS_NAME,
+                        caminho=caminho_completo(pasta_logs),
+                        status=envios_mod.STATUS_FALHA,
+                        pasta_remota=pasta_remota_logs,
+                        detalhe=str(e),
+                    )
+                ],
+            )
             self._log(f"ERRO: {e}")
             messagebox.showerror("Erro ao enviar logs", str(e))
 

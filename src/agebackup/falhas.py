@@ -5,7 +5,19 @@ responde "o que não consegui copiar", que é outra coisa: o arquivo continua no
 Drive e continua faltando aqui.
 
 O formato é TSV, com uma linha por tentativa falha, para ser lido tanto por
-pessoa (`cat`, `grep`) quanto por script (`awk`, `cut`).
+pessoa (`cat`, `grep`) quanto por script (`awk`, `cut`). As colunas são:
+
+1. data/hora da falha (ISO 8601);
+2. nome do arquivo;
+3. categoria;
+4. tentativas;
+5. ID no Drive;
+6. detalhe;
+7. caminho local completo onde o arquivo deveria estar;
+8. data de modificação no Drive (ISO 8601).
+
+Logs gravados por versões anteriores têm só as seis primeiras colunas; a
+leitura continua funcionando e as duas últimas vêm vazias.
 """
 
 from __future__ import annotations
@@ -79,6 +91,12 @@ class Falha:
     drive_id: str = ""
     tentativas: int = 1
     quando: str = ""
+    # Caminho local onde o arquivo deveria ter sido gravado. Ajuda a localizar
+    # o item sem precisar procurar pelo nome no destino.
+    caminho: str = ""
+    # Data de modificação informada pelo Drive (ISO 8601), para distinguir
+    # versões do mesmo arquivo.
+    modificado: str = ""
 
     def __post_init__(self) -> None:
         if self.categoria not in CATEGORIAS:
@@ -87,7 +105,11 @@ class Falha:
             self.quando = datetime.now(UTC).isoformat(timespec="seconds")
 
     def para_linha(self) -> str:
-        """Serializa em TSV, removendo tabs e quebras de linha do detalhe."""
+        """Serializa em TSV, removendo tabs e quebras de linha dos textos.
+
+        As colunas novas (``caminho`` e ``modificado``) ficam no fim para não
+        deslocar as colunas dos logs antigos, que continuam legíveis.
+        """
         campos = [
             self.quando,
             self.nome,
@@ -95,13 +117,15 @@ class Falha:
             str(self.tentativas),
             self.drive_id,
             _limpar(self.detalhe),
+            _limpar(self.caminho, limite=1000),
+            _limpar(self.modificado),
         ]
         return "\t".join(campos)
 
 
-def _limpar(texto: str) -> str:
-    """Deixa o detalhe em uma linha, sem tabs, para não quebrar o TSV."""
-    return " ".join(str(texto).split())[:500]
+def _limpar(texto: str, limite: int = 500) -> str:
+    """Deixa o texto em uma linha, sem tabs, para não quebrar o TSV."""
+    return " ".join(str(texto).split())[:limite]
 
 
 def caminho_log(pasta_logs: Path) -> Path:
@@ -229,7 +253,7 @@ def ler(pasta_logs: Path, ultimas: int = 0) -> list[dict[str, str]]:
             if not bruta.strip() or bruta.startswith("#"):
                 continue
             partes = bruta.split("\t")
-            partes += [""] * (5 - len(partes))
+            partes += [""] * (8 - len(partes))
             linhas.append(
                 {
                     "quando": partes[0],
@@ -237,7 +261,9 @@ def ler(pasta_logs: Path, ultimas: int = 0) -> list[dict[str, str]]:
                     "categoria": partes[2],
                     "tentativas": partes[3],
                     "drive_id": partes[4],
-                    "detalhe": partes[5] if len(partes) > 5 else "",
+                    "detalhe": partes[5],
+                    "caminho": partes[6],
+                    "modificado": partes[7],
                 }
             )
     except OSError:

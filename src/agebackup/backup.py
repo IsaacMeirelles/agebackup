@@ -12,6 +12,7 @@ from pathlib import Path
 
 from googleapiclient.errors import HttpError
 
+from agebackup import envios as envios_mod
 from agebackup import falhas as falhas_mod
 from agebackup import manifest as manifest_mod
 from agebackup import reconstruir as reconstruir_mod
@@ -29,6 +30,7 @@ from agebackup.drive import (
     file_name,
 )
 from agebackup.falhas import Falha
+from agebackup.logging_paths import caminho_completo
 from agebackup.manifest import Registro, detectar_removidos, registrar_removidos
 
 # Documentos do Google não existem como blob; precisam de export.
@@ -655,9 +657,17 @@ def _rotacionar_logs(config: Config, destino: Path) -> None:
         print(f"\n  aviso: não foi possível criar {pasta_logs}: {error}")
         return
 
+    # Versões antigas guardavam a fronteira da rotação num arquivo de marca.
+    # A rotação atual usa o mtime de cada log, então a marca não é mais criada.
+    try:
+        (pasta_logs / ".agebackup-mes").unlink(missing_ok=True)
+    except OSError:
+        pass
+
     for alvo in (
         falhas_mod.caminho_log(pasta_logs),
         manifest_mod.caminho_removidos(pasta_logs),
+        envios_mod.caminho_log(pasta_logs),
     ):
         resultado = rotacao.rotacionar(
             alvo,
@@ -1018,6 +1028,8 @@ def executar_backup(
                                 "(original editável pela web)"
                             ),
                             drive_id=entrada.file_id,
+                            caminho=caminho_completo(gravado),
+                            modificado=entrada.modified_time or "",
                         )
                     )
             except (DownloadRestrictedError, DriveError, OSError, ValueError) as error:
@@ -1029,6 +1041,8 @@ def executar_backup(
                         categoria=categoria,
                         detalhe=detalhe,
                         drive_id=entrada.file_id,
+                        caminho=caminho_completo(destino),
+                        modificado=entrada.modified_time or "",
                     )
                 )
                 print(f"\r  {categoria:<13}{entrada.name}", flush=True)

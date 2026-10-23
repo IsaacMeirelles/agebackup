@@ -98,8 +98,10 @@ def test_internos_do_agebackup_nao_contam(tmp_path):
     logs.mkdir()
     (logs / ".agebackup-falhas.log").write_text("x", encoding="utf-8")
     (logs / ".agebackup-removidos.log").write_text("x", encoding="utf-8")
+    (logs / ".agebackup-envios.log").write_text("x", encoding="utf-8")
     (logs / ".agebackup-falhas.log.2026-09.log.gz").write_bytes(b"x")
     (logs / ".agebackup-removidos.log.2026-09.log.gz").write_bytes(b"x")
+    (logs / ".agebackup-envios.log.2026-09.log.gz").write_bytes(b"x")
     (logs / ".agebackup-mes").write_text("2026-10", encoding="utf-8")
 
     resultado = verificar(tmp_path)

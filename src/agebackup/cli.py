@@ -125,6 +125,10 @@ def mostrar_falhas(pasta_logs: Path) -> None:
     print("\n  Últimas:")
     for linha in linhas:
         print(f"    {linha['quando']}  {linha['nome']}  ({linha['categoria']})")
+        if linha.get("caminho"):
+            print(f"      Caminho   : {linha['caminho']}")
+        if linha.get("modificado"):
+            print(f"      Modificado: {linha['modificado']}")
 
 
 def mostrar_logs() -> None:

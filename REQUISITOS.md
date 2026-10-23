@@ -872,7 +872,7 @@ cron logo depois dele (ver [seção 8](#8-agendar-execução-automática)).
 
 ## 7. Os logs
 
-O agebackup mantém dois logs e um manifesto. Por padrão, os **logs** ficam numa
+O agebackup mantém três logs e um manifesto. Por padrão, os **logs** ficam numa
 subpasta `logs/` dentro do backup — o nome da pasta é configurável no Passo 4
 do assistente (ou pela chave `logs.directory`). O **manifesto** fica na raiz do
 backup.
@@ -881,7 +881,8 @@ backup.
 ~/agebackup/
 ├── logs/
 │   ├── .agebackup-falhas.log
-│   └── .agebackup-removidos.log
+│   ├── .agebackup-removidos.log
+│   └── .agebackup-envios.log
 └── .agebackup-manifest.json
 ```
 
@@ -891,6 +892,7 @@ backup.
 | --- | --- | --- |
 | `logs/.agebackup-falhas.log` | O que **não conseguiu baixar** | Só expurga por retenção |
 | `logs/.agebackup-removidos.log` | O que **sumiu do Drive** | Só expurga por retenção |
+| `logs/.agebackup-envios.log` | Status de cada **envio ao FTP** | Só expurga por retenção |
 | `.agebackup-manifest.json` | Ligação arquivo local ↔ ID no Drive | Atualizado sempre |
 
 ### Arquivos removidos na origem
@@ -965,6 +967,10 @@ Categorias:
 | `erro_api` | Outro erro da API | Veja o detalhe no log |
 | `listagem` | A listagem parou no meio | Repita o backup |
 
+O log grava: data/hora, nome, categoria, tentativas, ID no Drive, detalhe,
+caminho local completo e data de modificação no Drive. As duas últimas colunas
+foram acrescentadas no fim; logs antigos de seis colunas continuam legíveis.
+
 Consultar:
 
 ```sh
@@ -980,18 +986,46 @@ awk -F'\t' '{print $3}' ~/agebackup/logs/.agebackup-falhas.log | sort | uniq -c
 awk -F'\t' '$3=="operacao_longa" {print $2}' ~/agebackup/logs/.agebackup-falhas.log
 ```
 
+### Status dos envios ao FTP
+
+Cada tentativa de envio — pela aba **Upload Manual** ou pelo comando
+`agebackup-enviar` — acrescenta uma linha em `.agebackup-envios.log`. Envios que
+falham também são registrados, para você saber o que faltou. Formato TSV:
+
+```
+data<TAB>status<TAB>arquivo<TAB>caminho<TAB>tamanho_local<TAB>tamanho_remoto<TAB>pasta_remota<TAB>conferencia<TAB>detalhe
+```
+
+| Coluna | Conteúdo |
+| --- | --- |
+| `data` | data/hora da tentativa (ISO 8601) |
+| `status` | `ok` ou `falha` |
+| `arquivo` | nome do arquivo enviado |
+| `caminho` | caminho local completo |
+| `tamanho_local` / `tamanho_remoto` | bytes; remoto `0` quando não conferido |
+| `pasta_remota` | pasta calculada no servidor |
+| `conferencia` | `tamanho`, `sha256` ou vazio |
+| `detalhe` | mensagem de erro, quando houver |
+
+Na interface, use a aba **Log** → **Carregar .agebackup-envios.log**; o filtro
+`falha` mostra só o que não subiu.
+
 ### Rotação e retenção
 
-Os logs são comprimidos por mês, dentro da pasta de logs:
+Os logs são comprimidos a cada execução, dentro da pasta de logs:
 
 ```
 ~/agebackup/logs/
-├── .agebackup-falhas.log              # outubro (texto)
-├── .agebackup-falhas.2026-09.log.gz   # setembro (comprimido)
+├── .agebackup-falhas.log                        # execução atual (texto)
+├── .agebackup-falhas.2026-10-21-1842.log.gz     # execução anterior
 ├── .agebackup-removidos.log
-├── .agebackup-removidos.2026-09.log.gz
-└── .agebackup-mes                     # marca do mês corrente
+├── .agebackup-removidos.2026-10-21-1842.log.gz
+├── .agebackup-envios.log
+└── .agebackup-envios.2026-10-21-1842.log.gz
 ```
+
+Formatos antigos, com o mês no nome (`...2026-09.log.gz`), continuam sendo
+lidos e respeitam a retenção.
 
 Ler um compactado:
 
@@ -1005,13 +1039,16 @@ Listar tudo:
 uv run agebackup-backup --logs
 ```
 
-**Como a virada de execução é detectada:** por um arquivo de marca,
-`.agebackup-mes`, que guarda o selo (data e hora) da última execução.
-Deliberadamente **não** se usa a data de modificação do log, porque gravar na
-execução corrente atualizaria essa data e poderia esconder um log antigo.
+**Como a virada de execução é detectada:** a rotação roda **no início da
+execução, antes de qualquer escrita**. Se um log existir nesse momento, ele é da
+execução anterior e é fechado com a data/hora do próprio arquivo (mtime). Cada
+log tem seu ciclo, de forma independente. Versões antigas usavam um arquivo de
+marca, `.agebackup-mes`; ele **não é mais criado** e, se existir, é removido na
+próxima execução e ignorado pela conferência.
 
-A rotação roda uma vez por execução e é idempotente: rodar várias vezes no
-mesmo minuto não faz nada além do necessário.
+A rotação é idempotente: rodar várias vezes sem um log corrente não faz nada
+além do necessário. Duas execuções no mesmo minuto não se perdem: o conteúdo é
+somado no mesmo arquivo comprimido.
 
 **Configurando a retenção e a pasta dos logs:**
 

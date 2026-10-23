@@ -6,7 +6,7 @@ O **AgeBackup** espelha recursivamente uma pasta do Google Drive (ou a conta
 inteira) para uma pasta local, rebaixando apenas o que mudou desde a última
 execução. Documentos Google são exportados com a extensão correta
 (`.docx`, `.xlsx`, `.pptx`), transferências instáveis são repetidas
-automaticamente e os logs giram mensalmente com retenção configurável.
+automaticamente e os logs giram a cada execução com retenção configurável.
 
 ## Funcionalidades
 
@@ -130,7 +130,8 @@ destino/
 └── logs/
     ├── .agebackup-falhas.log                  # execução corrente
     ├── .agebackup-falhas.2026-10-21-1842.log.gz  # execuções fechadas
-    └── .agebackup-removidos.log               # arquivos removidos do Drive
+    ├── .agebackup-removidos.log               # arquivos removidos do Drive
+    └── .agebackup-envios.log                  # status dos envios ao FTP
 ```
 
 ## Documentação
@@ -144,7 +145,7 @@ destino/
 ## Desenvolvimento
 
 ```bash
-uv run python -m pytest   # 379 testes (nenhum chama a API real)
+uv run python -m pytest   # 441 testes (nenhum chama a API real)
 uv run black .            # formatação
 uv run ruff check .       # lint
 ./packaging/build.sh      # executáveis autônomos (ver packaging/README.md)

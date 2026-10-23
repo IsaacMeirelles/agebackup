@@ -8,6 +8,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
 from agebackup import config as config_mod
+from agebackup import envios as envios_mod
 from agebackup.logging_paths import caminho_completo
 
 
@@ -29,6 +30,9 @@ class LogTab:
         ttk.Button(
             topo, text="Carregar .agebackup-falhas.log", command=self.carregar_falhas
         ).pack(side=tk.LEFT, padx=2)
+        ttk.Button(
+            topo, text="Carregar .agebackup-envios.log", command=self.carregar_envios
+        ).pack(side=tk.LEFT, padx=2)
         ttk.Button(topo, text="Abrir arquivo...", command=self.abrir_arquivo).pack(
             side=tk.LEFT, padx=2
         )
@@ -36,11 +40,16 @@ class LogTab:
             side=tk.LEFT, padx=2
         )
         ttk.Button(topo, text="Limpar", command=self.limpar).pack(side=tk.LEFT, padx=2)
-        ttk.Label(topo, text="Filtro:").pack(side=tk.LEFT, padx=(10, 2))
+
+        filtros = ttk.Frame(self.frame)
+        filtros.pack(fill=tk.X, pady=(5, 0))
+        ttk.Label(filtros, text="Filtro:").pack(side=tk.LEFT)
         self.var_filtro = tk.StringVar()
         self.var_filtro.trace("w", lambda *a: self._aplicar_filtro())
-        ttk.Entry(topo, textvariable=self.var_filtro, width=30).pack(side=tk.LEFT)
-        ttk.Label(topo, text="(caminho completo exibido)").pack(side=tk.RIGHT)
+        ttk.Entry(filtros, textvariable=self.var_filtro, width=40).pack(
+            side=tk.LEFT, padx=(2, 6)
+        )
+        ttk.Label(filtros, text="(caminho completo exibido)").pack(side=tk.LEFT)
 
         self.texto = scrolledtext.ScrolledText(
             self.frame, wrap=tk.WORD, font=("Consolas", 9)
@@ -86,14 +95,20 @@ class LogTab:
     def carregar_atualizar(self):
         self._carregar(Path.home() / "agebackup-atualizar.log")
 
-    def carregar_falhas(self):
+    def _carregar_pasta_logs(self, nome: str):
+        """Carrega um log da pasta configurada; sem config, tenta a pasta pessoal."""
         cfg = config_mod.load()
         if cfg:
             destino_backup = Path(cfg.backup.destination).expanduser()
-            pasta_logs = cfg.logs.pasta(destino_backup)
-            self._carregar(pasta_logs / ".agebackup-falhas.log")
+            self._carregar(cfg.logs.pasta(destino_backup) / nome)
         else:
-            self._carregar(Path.home() / ".agebackup-falhas.log")
+            self._carregar(Path.home() / nome)
+
+    def carregar_falhas(self):
+        self._carregar_pasta_logs(".agebackup-falhas.log")
+
+    def carregar_envios(self):
+        self._carregar_pasta_logs(envios_mod.ENVIOS_NAME)
 
     def abrir_arquivo(self):
         arq = filedialog.askopenfilename(

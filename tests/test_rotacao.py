@@ -1,18 +1,19 @@
 """Testes da rotação dos logs, por execução.
 
-A fronteira entre execuções é decidida pelo arquivo de marca `.agebackup-mes`,
-não pelo mtime do log. Os testes simulam a virada escrevendo o selo da execução
-anterior na marca e chamando a rotação com um momento novo.
+A rotação roda no início da execução, antes de qualquer escrita: se o log
+existir nesse momento, ele é da execução anterior. O selo do arquivo fechado
+vem do mtime do log. Não há arquivo de marca (o antigo `.agebackup-mes` foi
+removido).
 """
 
 import gzip
+import os
 from datetime import UTC, datetime
 
 from agebackup import rotacao
 
 LOG = ".agebackup-falhas.log"
 SELO_ANTERIOR = "2026-10-20-0300"
-SELO_MES_ANTERIOR = "2026-09"
 AGORA = datetime(2026, 10, 21, 18, 42, tzinfo=UTC)
 SELO_ATUAL = "2026-10-21-1842"
 
@@ -21,52 +22,33 @@ def _caminho(tmp_path):
     return tmp_path / LOG
 
 
-def _marcar(tmp_path, selo: str):
-    rotacao.caminho_marca(tmp_path).write_text(selo, encoding="utf-8")
+def _com_data(caminho, selo: str = SELO_ANTERIOR):
+    """Define o mtime do log, simulando a execução que o gravou."""
+    quando = datetime.strptime(selo, "%Y-%m-%d-%H%M").replace(tzinfo=UTC)
+    os.utime(caminho, (quando.timestamp(), quando.timestamp()))
 
 
-def _escrever(caminho, texto="linha\n"):
+def _escrever(caminho, texto="linha\n", selo: str = SELO_ANTERIOR):
     caminho.write_text(texto, encoding="utf-8")
+    _com_data(caminho, selo)
 
 
 def _gz(tmp_path, selo: str):
     return tmp_path / f"{LOG}.{selo}.log.gz"
 
 
-def test_primeira_execucao_cria_marca(tmp_path):
-    rotacao.rotacionar(_caminho(tmp_path), AGORA)
-
-    assert rotacao.caminho_marca(tmp_path).read_text(encoding="utf-8") == SELO_ATUAL
-
-
-def test_primeira_execucao_nao_move_nada(tmp_path):
-    log = _caminho(tmp_path)
-    _escrever(log, "primeira vez\n")
-
-    resultado = rotacao.rotacionar(log, AGORA)
+def test_sem_log_nao_cria_arquivos(tmp_path):
+    resultado = rotacao.rotacionar(_caminho(tmp_path))
 
     assert resultado.comprimidos == []
-    assert log.read_text(encoding="utf-8") == "primeira vez\n"
+    assert list(tmp_path.iterdir()) == []
 
 
-def test_selo_igual_nao_rotaciona(tmp_path):
-    """Duas chamadas no mesmo minuto não criam dois arquivos."""
+def test_log_existente_e_rotacionado(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
-    _escrever(log, "ainda nesta execucao\n")
-
-    resultado = rotacao.rotacionar(log, AGORA)
-
-    assert resultado.comprimidos == []
-    assert log.exists()
-
-
-def test_virada_comprime_execucao_anterior(tmp_path):
-    log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     _escrever(log, "falha de ontem\n")
 
-    resultado = rotacao.rotacionar(log, AGORA)
+    resultado = rotacao.rotacionar(log)
 
     assert resultado.comprimidos == [_gz(tmp_path, SELO_ANTERIOR)]
     assert _gz(tmp_path, SELO_ANTERIOR).exists()
@@ -75,21 +57,19 @@ def test_virada_comprime_execucao_anterior(tmp_path):
 
 def test_nome_traz_data_e_hora(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     _escrever(log)
 
-    rotacao.rotacionar(log, AGORA)
+    rotacao.rotacionar(log)
 
     assert (tmp_path / f"{LOG}.2026-10-20-0300.log.gz").exists()
 
 
 def test_conteudo_sobrevive_a_compressao(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     original = "a\nb\nc\n"
     _escrever(log, original)
 
-    rotacao.rotacionar(log, AGORA)
+    rotacao.rotacionar(log)
 
     assert (
         gzip.decompress(_gz(tmp_path, SELO_ANTERIOR).read_bytes()).decode() == original
@@ -98,84 +78,93 @@ def test_conteudo_sobrevive_a_compressao(tmp_path):
 
 def test_accentos_sobrevremem(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     original = "ação, coração, três\n"
     _escrever(log, original)
 
-    rotacao.rotacionar(log, AGORA)
+    rotacao.rotacionar(log)
 
     compactado = gzip.decompress(_gz(tmp_path, SELO_ANTERIOR).read_bytes())
     assert compactado.decode("utf-8") == original
 
 
-def test_marca_avanca_apos_virada(tmp_path):
-    log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
-    _escrever(log)
-
-    rotacao.rotacionar(log, AGORA)
-
-    assert rotacao.caminho_marca(tmp_path).read_text(encoding="utf-8") == SELO_ATUAL
-
-
 def test_rotacao_e_idempotente(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     _escrever(log, "antigo\n")
 
-    rotacao.rotacionar(log, AGORA)
-    segundo = rotacao.rotacionar(log, AGORA)
+    rotacao.rotacionar(log)
+    segundo = rotacao.rotacionar(log)
 
     assert segundo.comprimidos == []
     assert len(list(tmp_path.glob(f"{LOG}.*.gz"))) == 1
 
 
 def test_escrever_no_log_nao_impede_a_virada(tmp_path):
-    """Regressão: gravar no log corrente não pode esconder o log antigo."""
+    """Regressão: gravar no log não pode esconder a execução anterior."""
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
-    _escrever(log, "ontem\n")
+    _escrever(log, "ontem\n", selo=SELO_ATUAL)
 
-    import os
+    resultado = rotacao.rotacionar(log)
 
-    os.utime(log, (AGORA.timestamp(), AGORA.timestamp()))
+    assert resultado.comprimidos == [_gz(tmp_path, SELO_ATUAL)]
 
-    resultado = rotacao.rotacionar(log, AGORA)
 
-    assert resultado.comprimidos == [_gz(tmp_path, SELO_ANTERIOR)]
+def test_duas_execucoes_no_mesmo_minuto_nao_se_perdem(tmp_path):
+    log = _caminho(tmp_path)
+    _escrever(log, "primeira execucao\\n", selo=SELO_ANTERIOR)
+    rotacao.rotacionar(log)
+    _escrever(log, "segunda execucao\\n", selo=SELO_ANTERIOR)
+
+    rotacao.rotacionar(log)
+
+    texto = gzip.decompress(_gz(tmp_path, SELO_ANTERIOR).read_bytes()).decode()
+    assert "primeira execucao" in texto
+    assert "segunda execucao" in texto
+
+
+def test_logs_diferentes_rotacionam_na_mesma_execucao(tmp_path):
+    """Cada log tem seu próprio ciclo; um não bloqueia a rotação do outro."""
+    falhas = tmp_path / ".agebackup-falhas.log"
+    removidos = tmp_path / ".agebackup-removidos.log"
+    _escrever(falhas)
+    _escrever(removidos)
+
+    resultado_falhas = rotacao.rotacionar(falhas)
+    resultado_removidos = rotacao.rotacionar(removidos)
+
+    assert resultado_falhas.comprimidos
+    assert resultado_removidos.comprimidos
+    assert not falhas.exists()
+    assert not removidos.exists()
 
 
 def test_varias_execucoes_soltas_sao_comprimidas(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
     for selo in ("2026-10-18-0300", "2026-10-19-0300", "2026-10-20-0300"):
         (tmp_path / f"{LOG}.{selo}.log").write_text("antigo\n", encoding="utf-8")
 
-    resultado = rotacao.rotacionar(log, AGORA)
+    resultado = rotacao.rotacionar(log)
 
     assert len(resultado.comprimidos) == 3
     assert not list(tmp_path.glob(f"{LOG}.2026-10-*.log"))
 
 
-def test_execucao_corrente_solta_nao_e_comprimida(tmp_path):
+def test_logs_ja_comprimidos_nao_sao_mexidos(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
-    do_agora = tmp_path / f"{LOG}.{SELO_ATUAL}.log"
-    do_agora.write_text("ainda\n", encoding="utf-8")
+    pronto = tmp_path / f"{LOG}.{SELO_ANTERIOR}.log.gz"
+    pronto.write_bytes(b"x")
 
-    resultado = rotacao.rotacionar(log, AGORA)
+    resultado = rotacao.rotacionar(log)
 
-    assert do_agora.exists()
+    assert pronto.exists()
     assert resultado.comprimidos == []
 
 
 def test_nome_invalido_e_ignorado(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
     invalido = tmp_path / f"{LOG}.nao-e-data.log"
     invalido.write_text("?\n", encoding="utf-8")
 
-    rotacao.rotacionar(log, AGORA)
+    rotacao.rotacionar(log)
 
     assert invalido.exists(), "não deve apagar arquivo de nome inesperado"
 
@@ -183,12 +172,11 @@ def test_nome_invalido_e_ignorado(tmp_path):
 def test_log_da_execucao_anterior_e_acrescentado(tmp_path):
     """Se existir arquivo da execução, o conteúdo é somado, não sobrescrito."""
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     alvo = tmp_path / f"{LOG}.{SELO_ANTERIOR}.log"
     alvo.write_text("primeira parte\n", encoding="utf-8")
     _escrever(log, "segunda parte\n")
 
-    rotacao.rotacionar(log, AGORA)
+    rotacao.rotacionar(log)
 
     texto = gzip.decompress(_gz(tmp_path, SELO_ANTERIOR).read_bytes()).decode()
     assert "primeira parte" in texto
@@ -196,9 +184,7 @@ def test_log_da_execucao_anterior_e_acrescentado(tmp_path):
 
 
 def test_sem_log_nao_falha(tmp_path):
-    _marcar(tmp_path, SELO_ANTERIOR)
-
-    resultado = rotacao.rotacionar(_caminho(tmp_path), AGORA)
+    resultado = rotacao.rotacionar(_caminho(tmp_path))
 
     assert resultado.comprimidos == []
     assert resultado.erro == ""
@@ -242,7 +228,6 @@ def test_selo_do_arquivo():
 
 def test_retencao_mantem_apenas_os_recentes(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
     for selo in (
         "2026-10-15-0300",
         "2026-10-16-0300",
@@ -254,7 +239,7 @@ def test_retencao_mantem_apenas_os_recentes(tmp_path):
     ):
         (tmp_path / f"{LOG}.{selo}.log.gz").write_bytes(b"x")
 
-    resultado = rotacao.rotacionar(log, AGORA, manter=7)
+    resultado = rotacao.rotacionar(log, manter=7)
 
     assert resultado.removidos == []
     assert len(rotacao.arquivados(log)) == 7
@@ -262,7 +247,6 @@ def test_retencao_mantem_apenas_os_recentes(tmp_path):
 
 def test_retencao_apaga_os_excedentes(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
     for selo in (
         "2026-10-18-0300",
         "2026-10-19-0300",
@@ -272,7 +256,7 @@ def test_retencao_apaga_os_excedentes(tmp_path):
     ):
         (tmp_path / f"{LOG}.{selo}.log.gz").write_bytes(b"x")
 
-    resultado = rotacao.rotacionar(log, AGORA, manter=3)
+    resultado = rotacao.rotacionar(log, manter=3)
 
     assert len(resultado.removidos) == 2
     assert not (tmp_path / f"{LOG}.2026-10-18-0300.log.gz").exists()
@@ -282,49 +266,37 @@ def test_retencao_apaga_os_excedentes(tmp_path):
 
 def test_retencao_zero_guarda_tudo(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
     velho = tmp_path / f"{LOG}.2020-01-01-0300.log.gz"
     velho.write_bytes(b"muito antigo")
 
-    resultado = rotacao.rotacionar(log, AGORA, manter=0)
+    resultado = rotacao.rotacionar(log, manter=0)
 
     assert velho.exists()
     assert resultado.removidos == []
 
 
-def test_retencao_nao_apaga_log_textual(tmp_path):
-    log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
-    log.write_text("execucao corrente\n", encoding="utf-8")
-
-    rotacao.rotacionar(log, AGORA, manter=1)
-
-    assert log.exists()
-
-
 def test_retencao_ignora_nome_invalido(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ATUAL)
     invalido = tmp_path / f"{LOG}.lixo.log.gz"
     invalido.write_bytes(b"?")
 
-    rotacao.rotacionar(log, AGORA, manter=1)
+    rotacao.rotacionar(log, manter=1)
 
     assert invalido.exists()
 
 
 def test_retencao_vazia_sem_log(tmp_path):
-    resultado = rotacao.rotacionar(_caminho(tmp_path), AGORA, manter=6)
+    resultado = rotacao.rotacionar(_caminho(tmp_path), manter=6)
 
     assert resultado.removidos == []
 
 
 def test_sem_compressao_move_mas_nao_comprime(tmp_path):
     log = _caminho(tmp_path)
-    _marcar(tmp_path, SELO_ANTERIOR)
     log.write_text("ontem\n", encoding="utf-8")
+    _com_data(log)
 
-    resultado = rotacao.rotacionar(log, AGORA, comprimir=False)
+    resultado = rotacao.rotacionar(log, comprimir=False)
 
     assert resultado.comprimidos == []
     assert (tmp_path / f"{LOG}.{SELO_ANTERIOR}.log").exists()

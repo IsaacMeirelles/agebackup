@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
+from agebackup import envios as envios_mod
 from agebackup.verificacao import SUFIXO_TMP
 
 # Tamanho do bloco de leitura/escrita do envio (1 MiB).
@@ -706,6 +707,29 @@ def _caminho_credenciais(config, extra: str | None) -> Path:
     return CONFIG_DIR / ARQUIVO_PADRAO
 
 
+def _padrao_remoto(config) -> str:
+    """Pasta remota personalizada: envio, depois ftp, senão o padrão."""
+    return config.envio.pasta_remota or (
+        config.ftp.pasta_remota if getattr(config, "ftp", None) else ""
+    )
+
+
+def _pasta_logs(config) -> Path:
+    return config.logs.pasta(Path(config.backup.destination).expanduser())
+
+
+def _registrar_status(config, registros) -> None:
+    """Grava o status dos envios no log persistente, sem interromper o envio."""
+    log = envios_mod.registrar(_pasta_logs(config), registros)
+    if log is None:
+        print(
+            "  aviso: nao foi possivel gravar o log de status do envio",
+            file=sys.stderr,
+        )
+    elif registros:
+        print(f"  Status   : {log}")
+
+
 def _resumo_envio(resultado: ResultadoEnvio, manter: int, conferiu: str) -> int:
     """Mostra o resultado do envio e devolve o código de saída."""
     if resultado.erro:
@@ -787,6 +811,9 @@ def main(argv: list[str] | None = None) -> int:
         print("  --conferir espera o caminho do arquivo.", file=sys.stderr)
         return 1
 
+    padrao = _padrao_remoto(config)
+    pasta_destino = pasta_remota(datetime.now(), credenciais.pasta, padrao)
+
     _titulo("Enviar backup para FTP")
     print(
         f"  Servidor : {credenciais.host}:{credenciais.porta} "
@@ -794,7 +821,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     print(f"  Usuario  : {credenciais.usuario}")
     print(f"  Arquivo  : {arquivo}")
-    print(f"  Pasta    : {pasta_remota(datetime.now(), credenciais.pasta)}")
+    print(f"  Pasta    : {pasta_destino}")
     print(f"  Retencao : {'guardar todos' if manter <= 0 else f'{manter} arquivo(s)'}")
     print(
         f"  Confere  : {'sha256 (baixa de volta)' if sha256_completo else ('tamanho' if verificacao else 'nao')}"
@@ -809,13 +836,13 @@ def main(argv: list[str] | None = None) -> int:
             logs = arquivos_de_log(pasta_logs)
             print(
                 f"  Logs     : {len(logs)} arquivo(s) para "
-                f"{pasta_de_logs(datetime.now(), credenciais.pasta)}"
+                f"{pasta_de_logs(datetime.now(), credenciais.pasta, padrao)}"
             )
         print("  Simulacao: nada foi enviado.")
         return 0
 
     if "--conferir" in args:
-        resultado = conferir(arquivo, credenciais)
+        resultado = conferir(arquivo, credenciais, pasta=pasta_destino)
         if resultado.erro:
             print(f"\n  ERRO: {resultado.erro}", file=sys.stderr)
             return 1
@@ -824,7 +851,7 @@ def main(argv: list[str] | None = None) -> int:
             ftp = None
             try:
                 ftp = conectar(credenciais)
-                garantir_pasta(ftp, pasta_remota(datetime.now(), credenciais.pasta))
+                garantir_pasta(ftp, pasta_destino)
                 remoto_hash = sha256_remoto(ftp, arquivo.name, destino)
             except (ftplib.all_errors, OSError) as error:
                 print(
@@ -863,6 +890,7 @@ def main(argv: list[str] | None = None) -> int:
         sha256_completo=sha256_completo,
         progresso=_progresso_texto,
         ao_conferir=lambda _r: print("\n  conferindo no servidor..."),
+        pasta=pasta_destino,
     )
     print()
 
@@ -872,19 +900,19 @@ def main(argv: list[str] | None = None) -> int:
             conferiu = "sha256 (identico ao local)"
         elif verificacao:
             conferiu = "tamanho (igual ao local)"
+    _registrar_status(config, [envios_mod.de_resultado(resultado, pasta_destino)])
     codigo = _resumo_envio(resultado, manter, conferiu)
 
     # Conferência remota dos logs: enviados para /ano/mês/logs depois do tar.gz.
     if not resultado.erro and "--sem-logs" not in args:
-        codigo = max(codigo, _enviar_logs(config, credenciais))
+        codigo = max(codigo, _enviar_logs(config, credenciais, padrao))
 
     return codigo
 
 
-def _enviar_logs(config, credenciais: CredenciaisFtp) -> int:
+def _enviar_logs(config, credenciais: CredenciaisFtp, padrao: str = "") -> int:
     """Envia os logs para conferência remota. Devolve 0 (ok) ou 1 (erro)."""
-    destino_backup = Path(config.backup.destination).expanduser()
-    pasta_logs = config.logs.pasta(destino_backup)
+    pasta_logs = _pasta_logs(config)
     logs = arquivos_de_log(pasta_logs)
 
     print("\n  Logs para conferencia remota:")
@@ -892,9 +920,17 @@ def _enviar_logs(config, credenciais: CredenciaisFtp) -> int:
         print("    (nenhum log para enviar)")
         return 0
 
-    print(f"    Pasta : {pasta_de_logs(datetime.now(), credenciais.pasta)}")
+    momento = datetime.now()
+    pasta_destino = pasta_de_logs(momento, credenciais.pasta, padrao)
+    print(f"    Pasta : {pasta_destino}")
+    resultados = enviar_logs(pasta_logs, credenciais, momento=momento, padrao=padrao)
+    _registrar_status(
+        config,
+        [envios_mod.de_resultado(resultado, pasta_destino) for resultado in resultados],
+    )
+
     falhou = False
-    for resultado in enviar_logs(pasta_logs, credenciais):
+    for resultado in resultados:
         if resultado.erro:
             print(
                 f"    ERRO  {resultado.arquivo.name}: {resultado.erro}", file=sys.stderr

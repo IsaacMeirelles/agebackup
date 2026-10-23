@@ -289,6 +289,25 @@ envio**, com caminhos completos.
   `<pasta remota>/logs`, também aplicando a retenção. O log informa quantos
   arquivos foram enviados e quais falharam; se algum falhar, aparece um aviso.
 
+# Log de status dos envios
+Cada tentativa, inclusive as que falham, é registrada em
+**`.agebackup-envios.log`**, na pasta de logs configurada (Configuração →
+Logs). O arquivo é TSV, uma linha por arquivo enviado, com:
+
+- data/hora da tentativa;
+- status: **ok** ou **falha**;
+- nome e **caminho local completo** do arquivo;
+- tamanho local e tamanho remoto em bytes;
+- pasta remota usada;
+- conferência aplicada (tamanho, sha256 ou vazia);
+- detalhe do erro, quando houver.
+
+O caminho do log aparece no quadro após cada envio. A rotação (quando ativa na
+configuração de logs) fecha esse arquivo no início da próxima execução do
+backup, como os demais, mantendo os N mais recentes. Para consultar: aba **Log**
+→ **Carregar .agebackup-envios.log** (e filtre por `falha` para ver só o que deu
+errado).
+
 # Pasta remota
 A pasta de destino no servidor é montada na hora com a data do envio e o
 padrão configurado em **Configuração → Envio**. As variáveis aceitas são
@@ -385,8 +404,14 @@ que foi copiado. Todos os caminhos aparecem completos.
   para ver o que aconteceu na última atualização do código.
 - **Carregar .agebackup-falhas.log**: carrega o registro de falhas do backup,
   que fica na pasta de logs configurada (dentro do destino do backup). Se não
-  houver configuração, tenta `~/.agebackup-falhas.log`. É o primeiro lugar a
-  olhar quando o backup termina com falhas.
+  houver configuração, tenta `~/.agebackup-falhas.log`. Cada linha traz a
+  data/hora, o nome, a categoria, o **caminho local completo** e a **data de
+  modificação no Drive**, para localizar o arquivo rapidamente. É o primeiro
+  lugar a olhar quando o backup termina com falhas.
+- **Carregar .agebackup-envios.log**: carrega o status dos envios ao FTP, com
+  data/hora, status (ok/falha), caminho local completo, tamanhos, pasta remota
+  e detalhe do erro. Use o filtro `falha` para ver só as tentativas que não
+  deram certo.
 - **Abrir arquivo...**: abre qualquer arquivo de log do disco. Também aceita
   arquivos `.gz` (logs comprimidos), que são descomprimidos na leitura.
 - **Copiar seleção**: copia para a área de transferência apenas o trecho que
@@ -403,8 +428,10 @@ Mostra o caminho completo do arquivo carregado e o número de linhas. Quando há
 filtro ativo, mostra também quantas linhas correspondem ao texto digitado.
 
 # Dicas
-- Para achar um problema, carregue o `.agebackup-falhas.log` e filtre por
-  `FALHA` ou pelo caminho da pasta que interessa.
+- Para achar um problema de backup, carregue o `.agebackup-falhas.log` e filtre
+  por `FALHA` ou pelo caminho da pasta que interessa.
+- Para conferir envios, carregue o `.agebackup-envios.log` e filtre por `falha`
+  ou pelo nome do arquivo.
 - Logs comprimidos (`.gz`) podem ser abertos diretamente com **Abrir
   arquivo...**.
 - Se o arquivo não existir, o programa avisa e não altera o que já está na

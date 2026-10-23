@@ -29,16 +29,19 @@ def test_categoria_desconhecida_vira_desconhecida():
     )
 
 
-def test_para_linha_tem_seis_colunas():
+def test_para_linha_tem_oito_colunas():
     linha = _falha(detalhe="algo quebrou").para_linha()
 
-    assert len(linha.split("\t")) == 6
+    assert len(linha.split("\t")) == 8
 
 
 def test_detalhe_nao_quebra_o_tsv():
-    linha = _falha(detalhe="linha 1\nlinha 2\tcom tab").para_linha()
+    linha = _falha(
+        detalhe="linha 1\nlinha 2\tcom tab",
+        caminho="/backup/linha 1\nlinha 2\ta.pdf",
+    ).para_linha()
 
-    assert len(linha.split("\t")) == 6
+    assert len(linha.split("\t")) == 8
     assert "\n" not in linha
 
 
@@ -46,6 +49,39 @@ def test_detalhe_longo_e_truncado():
     linha = _falha(detalhe="x" * 900).para_linha()
 
     assert len(linha.split("\t")[5]) <= 500
+
+
+def test_caminho_e_modificacao_ficam_no_log(tmp_path):
+    registrar(
+        tmp_path,
+        [
+            _falha(
+                "a.pdf",
+                caminho="/backup/Documentos/a.pdf",
+                modificado="2026-10-01T12:30:00.000Z",
+            )
+        ],
+    )
+
+    linha = ler(tmp_path)[0]
+
+    assert linha["caminho"] == "/backup/Documentos/a.pdf"
+    assert linha["modificado"] == "2026-10-01T12:30:00.000Z"
+
+
+def test_ler_log_antigo_sem_caminho(tmp_path):
+    """Logs de versões anteriores (seis colunas) continuam legíveis."""
+    log = falhas_mod.caminho_log(tmp_path)
+    log.write_text(
+        "2026-10-12T09:00:00+00:00\ta.pdf\tbloqueado\t1\tF1\tmotivo\n",
+        encoding="utf-8",
+    )
+
+    linha = ler(tmp_path)[0]
+
+    assert linha["nome"] == "a.pdf"
+    assert linha["caminho"] == ""
+    assert linha["modificado"] == ""
 
 
 def test_registrar_cria_log(tmp_path):
