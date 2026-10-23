@@ -114,7 +114,7 @@ Para rodar **sem Python instalado**, o projeto gera binários únicos com o
 
 ```bash
 ./packaging/build.sh
-# dist/agebackup-backup   dist/agebackup-setup   dist/agebackup-compactar   (~49 MB cada)
+# dist/agebackup-gui   dist/agebackup-backup   dist/agebackup-setup   dist/agebackup-compactar   dist/agebackup-enviar
 ```
 
 Cada binário embute o interpretador, as dependências e os dados necessários

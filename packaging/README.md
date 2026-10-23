@@ -16,6 +16,7 @@ Saída (em `dist/`, que é *gitignored*):
 
 | Arquivo | Equivale a |
 | --- | --- |
+| `dist/agebackup-gui` | `uv run agebackup-gui` |
 | `dist/agebackup-backup` | `uv run agebackup-backup` |
 | `dist/agebackup-setup` | `uv run agebackup-setup` |
 | `dist/agebackup-compactar` | `uv run agebackup-compactar` |
@@ -27,12 +28,12 @@ e podem ser apagados a qualquer momento.
 Requisito único: `uv` no `PATH`. O PyInstaller faz parte do grupo de dependências
 de desenvolvimento (`pyproject.toml`), então não é preciso ativar nada à mão.
 
-## Por que quatro binários
+## Por que cinco binários
 
-O projeto declara quatro comandos reais — `agebackup-backup`, `agebackup-setup`,
-`agebackup-compactar` e `agebackup-enviar` — e cada um vira um executável. O
-entry point `agebackup` é apenas um *placeholder* que imprime uma saudação; por
-isso **não** é empacotado.
+O projeto declara cinco comandos reais — `agebackup-gui`, `agebackup-backup`,
+`agebackup-setup`, `agebackup-compactar` e `agebackup-enviar` — e cada um vira
+um executável. O entry point `agebackup` é apenas um *placeholder* que imprime
+uma saudação; por isso **não** é empacotado.
 
 ## O que é embutido além do código
 
@@ -55,10 +56,12 @@ corromper bibliotecas nativas.
 
 | Arquivo | Papel |
 | --- | --- |
-| `build.sh` | constrói os quatro executáveis |
+| `build.sh` | constrói os cinco executáveis |
+| `agebackup-gui.spec` | spec do PyInstaller (janela única) |
 | `agebackup-backup.spec` | spec do PyInstaller (backup) |
 | `agebackup-setup.spec` | spec do PyInstaller (setup) |
 | `agebackup-compactar.spec` | spec do PyInstaller (compactação) |
+| `entry_gui.py` | script de entrada congelado (GUI) |
 | `entry_backup.py` | script de entrada congelado (backup) |
 | `entry_setup.py` | script de entrada congelado (setup) |
 | `entry_compactar.py` | script de entrada congelado (compactação) |
@@ -73,6 +76,6 @@ diretório de trabalho.
 - O `onefile` continua dependendo da **glibc** do sistema (não é um binário
   estático). Gerado e testado neste ambiente: Ubuntu 26.04.1 LTS, glibc 2.43,
   Python 3.14.4, PyInstaller 6.22.3.
-- Cerca de **49 MB** por binário.
+- Cerca de **49 a 55 MB** por binário (o da GUI inclui o Tkinter).
 - O binário é específico da plataforma: um executável gerado no Linux não roda
   no Windows/macOS (é preciso empacotar em cada sistema).

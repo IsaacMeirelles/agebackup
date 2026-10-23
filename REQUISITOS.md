@@ -1298,7 +1298,7 @@ e `uv` na máquina de destino:
 
 ```bash
 ./packaging/build.sh
-# dist/agebackup-backup   dist/agebackup-setup   dist/agebackup-compactar   (~49 MB cada)
+# dist/agebackup-gui   dist/agebackup-backup   dist/agebackup-setup   dist/agebackup-compactar   dist/agebackup-enviar
 ```
 
 | Aspecto | Detalhe |
