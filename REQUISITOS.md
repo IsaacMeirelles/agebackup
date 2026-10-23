@@ -1306,13 +1306,15 @@ e `uv` na máquina de destino:
 | Formato | `onefile` (arquivo único), um binário por comando real |
 | Conteúdo | interpretador, dependências e *data files* (templates `.pptx`/`.docx`, `cacert.pem`, discovery docs da API) |
 | Plataforma | específico do SO; ainda depende da glibc do sistema (não é estático) |
-| Binários | `agebackup-backup`, `agebackup-setup` e `agebackup-compactar`; o entry point `agebackup` (placeholder) **não** é empacotado |
+| Binários | `agebackup-gui`, `agebackup-backup`, `agebackup-setup`, `agebackup-compactar` e `agebackup-enviar`; o entry point `agebackup` (placeholder) **não** é empacotado |
 
 Os *data files* entram à mão nos specs porque a análise estática não os enxerga.
 Em especial, os discovery docs (`drive.v3`, `slides.v1`, `docs.v1`, `sheets.v4`)
 são **obrigatórios**: `googleapiclient.discovery.build` usa descoberta estática
 por padrão (sem fallback de rede). Detalhes em
-[packaging/README.md](packaging/README.md).
+[packaging/README.md](packaging/README.md). Para levar os binários a outro
+servidor (pré-requisitos, permissões, Service Account, FTP e `systemd`), veja
+[DEPLOY.md](DEPLOY.md).
 
 ---
 

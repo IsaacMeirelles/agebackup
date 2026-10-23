@@ -38,8 +38,9 @@ uma saudação; por isso **não** é empacotado.
 ## O que é embutido além do código
 
 O PyInstaller encontra sozinho os módulos importados, mas não os *arquivos de
-dados*. Os specs (`agebackup-backup.spec`, `agebackup-setup.spec`,
-`agebackup-compactar.spec` e `agebackup-enviar.spec`) acrescentam:
+dados*. Os specs (`agebackup-gui.spec`, `agebackup-backup.spec`,
+`agebackup-setup.spec`, `agebackup-compactar.spec` e `agebackup-enviar.spec`)
+acrescentam:
 
 | Item | Por quê |
 | --- | --- |
@@ -70,6 +71,12 @@ corromper bibliotecas nativas.
 
 Os specs resolvem os caminhos via `SPECPATH`, então o build funciona de qualquer
 diretório de trabalho.
+
+## Levar para outro servidor
+
+O passo a passo de transferência, pré-requisitos do destino, configuração da
+Service Account/FTP, agendamento com `systemd` e restauração em servidor sem
+tela está em [DEPLOY.md](../DEPLOY.md).
 
 ## Limitações
 

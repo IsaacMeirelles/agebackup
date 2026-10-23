@@ -132,7 +132,8 @@ gcloud --version
 > `agebackup-setup`, `agebackup-backup`, `agebackup-compactar` e
 > `agebackup-enviar`) que dispensam Python e `uv` — basta trocar
 > `uv run agebackup-setup` por `./agebackup-setup` (e assim por diante). Veja
-> [packaging/README.md](packaging/README.md) para gerá-los.
+> [packaging/README.md](packaging/README.md) para gerá-los e
+> [DEPLOY.md](DEPLOY.md) para transferi-los a outro servidor.
 
 ---
 

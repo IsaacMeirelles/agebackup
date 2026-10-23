@@ -103,9 +103,12 @@ O nome gerado é `<pasta>_AAAAMMDD-HHMM.tar.gz` (ou
 `<pasta>_<prefixo>_AAAAMMDD-HHMM.tar.gz` quando há prefixo), e a gravação é
 atômica (escreve um `.tmp` e só então renomeia).
 
-A configuração fica em `~/.config/agebackup/config.json` e o assistente
-(`agebackup-setup`) reapresenta os valores atuais a cada execução, pedindo
-confirmação — nada precisa ser reescrito do zero.
+A configuração fica em `agebackup.json`, **ao lado do executável** (por
+exemplo, `/opt/agebackup/agebackup.json`), e o assistente (`agebackup-setup`)
+reapresenta os valores atuais a cada execução, pedindo confirmação — nada
+precisa ser reescrito do zero. O arquivo legado em
+`~/.config/agebackup/config.json` é migrado automaticamente na primeira
+execução, se ainda existir.
 
 ## Executável autônomo
 
@@ -140,6 +143,7 @@ destino/
 | --- | --- |
 | [REQUISITOS.md](REQUISITOS.md) | Requisitos e manual completo, do zero à produção |
 | [USERGUIDE.md](USERGUIDE.md) | Guia rápido de uso passo a passo |
+| [DEPLOY.md](DEPLOY.md) | Transferir e executar em outro servidor: pré-requisitos, configuração, systemd e problemas comuns |
 | [packaging/README.md](packaging/README.md) | Executável autônomo (PyInstaller) |
 
 ## Desenvolvimento
