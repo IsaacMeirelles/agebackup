@@ -34,10 +34,10 @@ que já funciona**:
 | Arquivo | Obrigatório? | Observação |
 | --- | --- | --- |
 | `agebackup.json` | Sim, para aproveitar a configuração | Fica **ao lado do executável** |
-| `.agebackup-ftp.key` | Sim, se a senha FTP já estiver salva | Sem ele a senha não é descriptografada |
-| chave JSON da Service Account | Se esse for o método de autenticação | O caminho fica dentro do `agebackup.json` |
-| `ftp.ini` | Só se você usa credenciais externas | Também fica ao lado do executável |
-| `~/.config/gcloud/application_default_credentials.json` | Só no modo ADC | Credencial do **usuário que executará o backup** |
+| `.agebackup-ftp.key` | Sim, se houver qualquer credencial cifrada | Sem ele FTP, Service Account e ADC não são descriptografados |
+| chave JSON da Service Account | Só se ainda não foi importada para o `agebackup.json` | Na GUI, use **Conta → Importar JSON...** |
+| `ftp.ini` | Só se você usa credenciais externas | Na GUI, use **Envio → Importar credenciais do .ini...** |
+| `~/.config/gcloud/application_default_credentials.json` | Só no modo ADC sem credencial embutida | Na GUI, use **Conta → Importar ADC do gcloud** |
 | pasta de backup + `.agebackup-manifest.json` | Opcional | Só se quiser evitar baixar tudo de novo |
 
 > **Não copie** o `dist/agebackup.json` de um teste local sem revisar. Ele pode
@@ -349,11 +349,16 @@ copie os arquivos **ao lado dos binários**:
 ```sh
 # na origem: envie os arquivos para /tmp do servidor
 scp agebackup.json .agebackup-ftp.key usuario@servidor:/tmp/
+```
 
-# se usar Service Account, envie também a chave JSON
+Se você ainda não importou as credenciais para o `agebackup.json` (versão
+antiga ou uso externo), envie também os arquivos correspondentes:
+
+```sh
+# Service Account em arquivo separado
 scp /caminho/da/service-account.json usuario@servidor:/tmp/
 
-# se usar credenciais FTP externas
+# credenciais FTP externas
 scp ftp.ini usuario@servidor:/tmp/
 ```
 
@@ -367,13 +372,19 @@ sudo install -o agebackup -g agebackup -m 600 \
 Faça o mesmo com a chave JSON da Service Account e com o `ftp.ini`, se
 existirem. A chave JSON e o `ftp.ini` também devem ser `600`.
 
-### 4.1 A chave da senha FTP
+> **Forma recomendada:** abra a GUI em uma máquina com tela e use
+> **Configuração → Conta → Importar JSON...**, **Importar ADC do gcloud** e
+> **Configuração → Envio → Importar credenciais do .ini...**. Depois de
+> salvar, somente `agebackup.json` e `.agebackup-ftp.key` são necessários.
 
-A senha FTP fica cifrada no `agebackup.json` com uma chave em
-`.agebackup-ftp.key`, no mesmo diretório. **Copie os dois juntos.** Se levar só
-o `agebackup.json`, a senha não será descriptografada; nesse caso, digite a
-senha novamente na aba **Configuração → Envio** (em uma máquina com GUI) ou
-use o `ftp.ini`.
+### 4.1 A chave das credenciais cifradas
+
+A senha FTP, a chave da Service Account e o token ADC podem ficar cifrados no
+`agebackup.json` com uma chave em `.agebackup-ftp.key`, no mesmo diretório.
+**Copie os dois juntos.** Se levar só o `agebackup.json`, nenhuma credencial
+cifrada será descriptografada; nesse caso, importe/redigite as credenciais em
+uma máquina com GUI ou use os arquivos externos (`ftp.ini`, chave JSON ou ADC
+do gcloud).
 
 ### 4.2 ADC: cuidado com o `HOME`
 

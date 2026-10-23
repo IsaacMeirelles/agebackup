@@ -205,11 +205,17 @@ def mostrar_status() -> None:
     cfg = info["config"]
 
     if cfg is not None and cfg.account.auth_method == AUTH_SERVICE_ACCOUNT:
-        print("  Credenciais    : Service Account (arquivo JSON)")
+        if cfg.account.service_account_json_criptografado:
+            print("  Credenciais    : Service Account (JSON cifrado no config)")
+        else:
+            print("  Credenciais    : Service Account (arquivo JSON)")
         if cfg.account.email:
             print(f"    conta        : {cfg.account.email}")
     elif info["adc_present"]:
-        print("  Credenciais    : encontradas (ADC)")
+        if cfg is not None and cfg.account.adc_json_criptografado:
+            print("  Credenciais    : encontradas (ADC cifrado no config)")
+        else:
+            print("  Credenciais    : encontradas (ADC)")
         if adc.get("email"):
             print(f"    conta        : {adc['email']}")
         if adc.get("project_id"):
@@ -548,6 +554,13 @@ def wizard() -> int:
         if auth.auth_method != "manter":
             config.account.auth_method = auth.auth_method
             config.account.service_account_key_path = auth.service_account_key_path
+            if auth.auth_method == AUTH_SERVICE_ACCOUNT:
+                # O caminho recém-escolhido tem prioridade sobre um JSON antigo
+                # que estivesse embutido na configuração.
+                config.account.service_account_json_criptografado = ""
+            else:
+                # Reautenticou no ADC: usa o arquivo externo recém-gerado.
+                config.account.adc_json_criptografado = ""
             if auth.email:
                 config.account.email = auth.email
         config.account.scopes = [READONLY_SCOPE]

@@ -47,7 +47,9 @@ automaticamente e os logs giram a cada execução com retenção configurável.
   compactação da semana é **full**; as demais, **incrementais** (só o que mudou).
 - **Envio para FTP/FTPS** — `agebackup-enviar` sobe o `.tar.gz` mais recente
   para a pasta do ano/mês no servidor, confere o tamanho no destino e mantém os
-  7 mais recentes. Em seguida envia os **logs** para conferência remota.
+  7 mais recentes. Em seguida envia os **logs** para conferência remota. As
+  credenciais FTP ficam cifradas no `agebackup.json` e podem ser importadas de
+  um `.ini` antigo pela GUI.
 - **Dois modos de autenticação** — Application Default Credentials (conta
   pessoal/gestor) ou Service Account (compartilhando a pasta por e-mail).
 
@@ -55,7 +57,8 @@ automaticamente e os logs giram a cada execução com retenção configurável.
 
 - Python 3.14+ (gerenciado pelo [uv](https://docs.astral.sh/uv/))
 - Uma conta Google com a **Google Drive API** habilitada
-- Credenciais: OAuth (ADC) **ou** chave de Service Account (JSON)
+- Credenciais: OAuth (ADC) **ou** chave de Service Account (JSON). Pela GUI,
+  ambas podem ser importadas e ficam **cifradas no `agebackup.json`**.
 
 ## Instalação
 

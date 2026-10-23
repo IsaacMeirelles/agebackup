@@ -43,7 +43,8 @@ ou em que você clica em **Atualizar status**:
 - **Compactação**: texto da política atual (por exemplo, "full a cada 7 dias")
   e o prefixo usado nos nomes dos `.tar.gz`.
 - **Logs**: quantos logs fechados são mantidos e se eles são comprimidos.
-- **Envio FTP**: caminho do arquivo de credenciais ou "(padrão)".
+- **Envio FTP**: servidor e usuário salvos no `agebackup.json` ou, se a seção
+  `ftp` estiver vazia, o caminho do arquivo de credenciais externo.
 
 # Botões
 - **Ir para Backup**: abre a aba Backup. Use quando o resumo estiver correto e
@@ -89,11 +90,22 @@ Define como o programa se autentica no Google Drive.
   escolha muda qual credencial o backup usa.
 - **E-mail**: endereço associado à conta. Serve para identificação e para o
   resumo do status; não é usado como senha.
-- **Chave Service Account (JSON)**: caminho completo do arquivo `.json` da
-  conta de serviço. Só é necessário quando o método é Service Account. O botão
-  **Procurar...** abre o seletor de arquivos e preenche o campo.
+- **Chave Service Account (JSON)**: caminho do arquivo `.json` da conta de
+  serviço. O botão **Importar JSON...** valida o arquivo e preenche o campo;
+  ao clicar em **Salvar**, o conteúdo é gravado **cifrado no `agebackup.json`**
+  e o caminho externo deixa de ser necessário.
+- **Service Account (status)**: informa se já existe um JSON cifrado salvo, se
+  o arquivo indicado será importado ao salvar ou se não há credencial.
+- **ADC (status)**: informa se há uma credencial ADC cifrada no JSON, uma
+  credencial externa do gcloud ou nenhuma. O botão **Importar ADC do gcloud**
+  copia a credencial externa (`~/.config/gcloud/...`) para o `agebackup.json`
+  de forma cifrada, permitindo levá-la a outro servidor sem refazer o login.
 - **Escopos**: fixo em `drive.readonly`, ou seja, o AgeBackup só lê o Drive e
   nunca apaga nem altera nada lá.
+
+> As credenciais Google e FTP usam a mesma chave de cifragem,
+> `.agebackup-ftp.key`, que fica ao lado do `agebackup.json`, com permissão
+> restrita. Copie os dois arquivos juntos.
 
 # Sub-aba Backup (Google Drive)
 - **Pasta de destino do backup**: pasta local que recebe os arquivos. É
@@ -137,15 +149,24 @@ Controla os arquivos `.tar.gz` gerados a partir do backup.
   localizar o que falhou.
 
 # Sub-aba Envio (FTP/FTPS)
-- **Arquivo de credenciais FTP/FTPS (.ini)**: caminho do arquivo `.ini` com
-  host, usuário e senha. **Procurar...** seleciona o arquivo.
-- **Usar padrão junto à app**: preenche o campo com o `ftp.ini` que fica na
-  mesma pasta do aplicativo.
-- **Manter no servidor FTP (0 = guardar todos)**: quantos backups ficam no
-  servidor. Ao enviar, os mais antigos acima desse número são removidos.
-  **0 desliga a exclusão**.
-- **Pasta remota personalizada (variáveis)**: pasta de destino no servidor.
-  Aceita texto livre e as variáveis abaixo, substituídas pela data do envio:
+
+## Credenciais FTP/FTPS (salvas no agebackup.json)
+Os dados de acesso ficam dentro do próprio `agebackup.json`, na seção `ftp`.
+A senha é gravada **criptografada**; a chave de cifragem fica em
+`.agebackup-ftp.key`, ao lado do arquivo de configuração.
+- **Host**: endereço do servidor FTP/FTPS, sem `ftp://` (ex.:
+  `servidor.exemplo.com`). Obrigatório para usar as credenciais salvas.
+- **Porta**: porta do servidor. O padrão é **21**. Valores fora de 1 a 65535
+  são recusados ao salvar.
+- **TLS/FTPS**: marcado, usa FTPS explícito (recomendado). Desmarcado, usa FTP
+  sem criptografia; só use se o servidor não oferecer TLS.
+- **Usuário**: nome de usuário do FTP. Precisa ser preenchido junto com o host.
+- **Senha**: senha do FTP. O campo aparece mascarado. Se já existir uma senha
+  salva, **deixe em branco para manter** ou digite outra para substituir. A
+  senha nunca é exibida de volta a partir do arquivo.
+- **Mostrar**: exibe temporariamente a senha digitada no campo, para conferir.
+- **Pasta remota personalizada**: pasta de destino no servidor. Aceita texto
+  livre e as variáveis abaixo, substituídas pela data do envio:
   - **YYYY** = ano com 4 dígitos (2026)
   - **YY** = ano com 2 dígitos (26)
   - **MM** = mês com 2 dígitos (01 a 12)
@@ -153,8 +174,24 @@ Controla os arquivos `.tar.gz` gerados a partir do backup.
   - **dd** = dia com 2 dígitos
   - **d** = dia sem zero à esquerda
   Exemplos: `/backups/YYYY/MM`, `/RSKO/YYYY-MM`, `/clientes/acme/dd-MM-YYYY`.
-  Vazio usa o padrão `/AAAA/MM/`. A senha do FTP fica **criptografada** dentro
-  do `agebackup.json`; a chave fica em `.agebackup-ftp.key`, na mesma pasta.
+  Vazio usa o padrão `/AAAA/MM/`.
+- **Importar credenciais do .ini...**: abre o seletor de arquivos, lê o `.ini`
+  (ou o formato de três linhas do Hetzner) e preenche os campos acima. Nada é
+  gravado até clicar em **Salvar**.
+- **Importar ftp.ini padrão**: procura o `ftp.ini` na mesma pasta do aplicativo
+  e preenche os campos com o que encontrar.
+- **Limpar credenciais salvas**: apaga host, usuário, senha e pasta remota ao
+  salvar. Se houver um arquivo `.ini` configurado abaixo, ele volta a ser usado.
+
+## Opções de envio
+- **Manter no servidor FTP (0 = guardar todos)**: quantos backups ficam no
+  servidor. Ao enviar, os mais antigos acima desse número são removidos.
+  **0 desliga a exclusão**.
+- **Arquivo .ini legado (opcional)**: caminho de um arquivo externo com
+  host/usuário/senha. Só é usado quando **host e usuário** estão vazios. Serve
+  para migrar instalações antigas ou manter as credenciais fora do JSON.
+  **Procurar...** seleciona o arquivo; **Usar padrão junto à app** preenche com
+  o `ftp.ini` da pasta do aplicativo.
 
 # Erros comuns
 - "Não foi possível salvar": verifique se você tem permissão de escrita na

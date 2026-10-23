@@ -96,9 +96,12 @@ A configuração fica em **`agebackup.json` na mesma pasta do executável** (em
 desenvolvimento, na raiz do projeto). Na primeira execução, o AgeBackup migra
 automaticamente o antigo `~/.config/agebackup/config.json`, se ele existir.
 
-> A senha do FTP fica **criptografada** nesse arquivo (campo
-> `ftp.senha_criptografada`). A chave usada para cifrar fica num arquivo
-> separado, `.agebackup-ftp.key`, com permissão restrita.
+> As credenciais ficam **criptografadas** nesse arquivo: a senha do FTP
+> (`ftp.senha_criptografada`), o JSON da Service Account
+> (`account.service_account_json_criptografado`) e o token ADC
+> (`account.adc_json_criptografado`). A chave usada para cifrar fica num
+> arquivo separado, `.agebackup-ftp.key`, com permissão restrita. Copie o
+> `agebackup.json` e essa chave juntos.
 
 ---
 
@@ -949,15 +952,24 @@ Os dados do servidor ficam **dentro do próprio `agebackup.json`**, na seção
 }
 ```
 
-Na aba **Configuração → Envio (FTP/FTPS)** dá para editar host, porta, usuário,
-senha, pasta remota e TLS. A senha é cifrada ao salvar; a chave fica em
-`.agebackup-ftp.key`, ao lado do `agebackup.json`, com permissão restrita.
+Na aba **Configuração → Envio (FTP/FTPS)** dá para editar **host, porta,
+usuário, senha, pasta remota e TLS**. Ao salvar, todos esses dados vão para o
+`agebackup.json`; a senha é cifrada com a chave de `.agebackup-ftp.key`, que
+fica ao lado do arquivo de configuração, com permissão restrita.
 
-> **Importante:** não é possível "ver" a senha de volta no arquivo — só
-> substituí-la. Se precisar trocá-la, digite a nova na aba de configuração.
+> **Importante:** a senha salva nunca é exibida de volta. O campo fica em
+> branco ao abrir a configuração: deixe-o vazio para manter a senha atual ou
+> digite uma nova para substituí-la. O botão **Mostrar** só revela o que você
+> acabou de digitar.
 
-Ainda é possível usar um arquivo externo de credenciais (útil para migrar de
-uma instalação antiga). São aceitos dois formatos.
+Para migrar uma instalação antiga, use **Importar credenciais do .ini...** (ou
+**Importar ftp.ini padrão**) e clique em **Salvar**. A partir daí o arquivo
+externo não é mais necessário. **Limpar credenciais salvas** remove host,
+usuário, senha e pasta remota do JSON ao salvar.
+
+Ainda é possível usar um arquivo externo de credenciais, mas ele só é
+consultado quando **host e usuário estão vazios** na configuração. São aceitos
+dois formatos.
 
 Formato de três linhas (o usado no Storage Box da Hetzner):
 
@@ -1350,14 +1362,14 @@ uv run agebackup-compactar --dry-run # simular, sem gravar
 
 ```
 ~/projetos/agebackup/
-├── agebackup.json     # configuração (junto ao app; senha FTP criptografada)
+├── agebackup.json     # configuração (junto ao app; credenciais criptografadas)
 ├── src/agebackup/
 │   ├── backup.py      # motor do backup
 │   ├── cli.py         # comando agebackup-backup
 │   ├── compactacao.py # comando agebackup-compactar (.tar.gz do backup)
 │   ├── config.py      # configuração, credenciais e política de logs
 │   ├── config_paths.py# onde fica o agebackup.json (junto ao app) e migração
-│   ├── crypto_ftp.py  # criptografia da senha do FTP
+│   ├── crypto_ftp.py  # criptografia das credenciais (FTP, Service Account, ADC)
 │   ├── drive.py       # cliente da Drive API e download
 │   ├── envios.py      # log de status dos envios ao FTP
 │   ├── falhas.py      # log de falhas

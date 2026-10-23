@@ -138,7 +138,15 @@ class AgeBackupApp:
         texto.append(
             f"Logs: manter={cfg.logs.keep_logs}, comprimir={cfg.logs.compress}"
         )
-        texto.append(f"Envio FTP: credenciais={cfg.envio.credenciais or '(padrão)'}")
+        if cfg.ftp.tem_dados():
+            texto.append(
+                f"Envio FTP: {cfg.ftp.usuario}@{cfg.ftp.host}:{cfg.ftp.porta} "
+                "(salvo no agebackup.json)"
+            )
+        else:
+            texto.append(
+                f"Envio FTP: credenciais={cfg.envio.credenciais or '(padrão)'}"
+            )
         self.lbl_status.config(text="\n".join(texto))
         self.set_status("Status atualizado")
 

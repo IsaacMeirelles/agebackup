@@ -361,7 +361,8 @@ uv run agebackup-setup --status
 
 ### Onde fica salvo
 
-`~/.config/agebackup/config.json`, com permissão `600` (só você pode ler).
+`agebackup.json`, junto ao aplicativo, com permissão `600` (só você pode ler).
+As credenciais cifradas usam a chave `.agebackup-ftp.key`, no mesmo diretório.
 
 ---
 
@@ -377,6 +378,8 @@ Referência completa de todos os campos. O arquivo tem as seções `account`,
     "scopes": ["https://www.googleapis.com/auth/drive.readonly"],
     "auth_method": "adc",
     "service_account_key_path": "",
+    "service_account_json_criptografado": "",
+    "adc_json_criptografado": "",
     "verified": true,
     "ask_reuse": true
   },
@@ -457,6 +460,18 @@ chave não fica dentro do repositório git. O arquivo original não é removido.
 > Service Account (e qualquer `credentials.json`/`token.json`) não é
 > recuperável pelo git, porque `*.json` é ignorado. Antes de qualquer `rm`,
 > `mv` ou limpeza de repositório, confirme que existe uma cópia de segurança.
+
+#### `service_account_json_criptografado`
+
+Conteúdo completo do JSON da Service Account, cifrado. Quando preenchido, tem
+prioridade sobre `service_account_key_path` e dispensa o arquivo externo. Pode
+ser importado na GUI em **Configuração → Conta → Importar JSON...**.
+
+#### `adc_json_criptografado`
+
+Conteúdo do ADC do gcloud (`authorized_user`) cifrado. Quando preenchido,
+permite usar a autenticação ADC sem depender do arquivo externo do `HOME`.
+Pode ser importado na GUI em **Configuração → Conta → Importar ADC do gcloud**.
 
 #### `verified`
 
@@ -1117,7 +1132,11 @@ uv run agebackup-enviar --verificar-sha256    # prova byte a byte (baixa de volt
 uv run agebackup-enviar --conferir P          # só confere um arquivo já enviado
 ```
 
-As credenciais ficam num arquivo fora do projeto, com permissão `600`:
+As credenciais podem ficar **cifradas no próprio `agebackup.json`**, na seção
+`ftp` (host, porta, usuário, senha e TLS), editáveis na GUI em
+**Configuração → Envio (FTP/FTPS)**.
+
+Ainda é aceito um arquivo externo, com permissão `600`:
 
 ```
 ftp://servidor.exemplo.de
@@ -1125,10 +1144,9 @@ user: usuario
 password: senha
 ```
 
-O caminho é `envio.credenciais` na configuração (padrão
-`~/.config/agebackup/ftp.ini`). A conexão usa **FTPS explícito** na porta 21,
-o esperado por servidores como o Storage Box; `tls = false` no `.ini` força FTP
-puro.
+O caminho é `envio.credenciais` na configuração (padrão `ftp.ini` na pasta do
+aplicativo). Ele só é usado quando a seção `ftp` está vazia. A conexão usa
+**FTPS explícito** quando `tls` está ligado; `tls = false` força FTP puro.
 
 ---
 

@@ -1,10 +1,11 @@
-"""Criptografia da senha FTP no arquivo de configuração.
+"""Criptografia das credenciais no arquivo de configuração.
 
-A senha fica cifrada com Fernet (``cryptography``). A chave é gerada na primeira
-gravação e guardada em ``.agebackup-ftp.key``, junto ao ``agebackup.json``, com
-permissão restrita. Sem a biblioteca ``cryptography`` instalada, a senha é
-guardada com uma ofuscação XOR (útil só para não deixá-la em texto puro, sem a
-mesma garantia criptográfica).
+Senha FTP, JSON da Service Account e token ADC ficam cifrados com Fernet
+(``cryptography``). A chave é gerada na primeira gravação e guardada em
+``.agebackup-ftp.key`` (nome mantido por compatibilidade), junto ao
+``agebackup.json``, com permissão restrita. Sem a biblioteca ``cryptography``
+instalada, os dados são guardados com uma ofuscação XOR (útil só para não
+deixá-los em texto puro, sem a mesma garantia criptográfica).
 """
 
 from __future__ import annotations

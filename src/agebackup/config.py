@@ -87,6 +87,12 @@ class AccountConfig:
     scopes: list[str] = field(default_factory=lambda: [READONLY_SCOPE])
     auth_method: str = AUTH_ADC  # adc | service_account
     service_account_key_path: str = ""
+    # Conteúdo do JSON da Service Account, cifrado no agebackup.json. Quando
+    # presente, dispensa o arquivo externo e o caminho acima.
+    service_account_json_criptografado: str = ""
+    # Conteúdo do ADC (authorized_user), cifrado no agebackup.json. Permite
+    # levar a autenticação para outro servidor sem depender do HOME/gcloud.
+    adc_json_criptografado: str = ""
     # Vira True depois de uma autenticação validada com sucesso. Serve para
     # saber que a configuração salva não está quebrada.
     verified: bool = False
@@ -95,13 +101,16 @@ class AccountConfig:
     ask_reuse: bool = True
 
     def chave_presente(self) -> bool:
-        """True se a credencial necessária existe no disco.
+        """True se a credencial necessária existe.
 
-        No modo Service Account a autenticação depende do arquivo JSON da
-        chave: se ele sumiu, a configuração está quebrada mesmo com
-        `verified` gravado. Em ADC não há arquivo próprio, então devolve True.
+        No modo Service Account a autenticação usa o JSON cifrado dentro do
+        `agebackup.json` ou, na falta dele, o arquivo indicado em
+        `service_account_key_path`. Em ADC devolve True porque a credencial
+        pode estar no arquivo externo do gcloud ou cifrada no próprio JSON.
         """
         if self.auth_method != AUTH_SERVICE_ACCOUNT:
+            return True
+        if self.service_account_json_criptografado:
             return True
         if not self.service_account_key_path:
             return False
@@ -476,19 +485,70 @@ def gcloud_installed() -> bool:
     return gcloud_path() is not None
 
 
+def _texto_credencial_criptografada(valor: str, nome: str) -> str:
+    """Decifra uma credencial guardada no JSON, com erro legível."""
+    from agebackup import crypto_ftp
+
+    if not valor:
+        return ""
+    texto = crypto_ftp.descriptografar(valor)
+    if not texto:
+        raise ConfigError(
+            f"Não foi possível decifrar a credencial {nome}. "
+            "Confira se o arquivo .agebackup-ftp.key está junto do agebackup.json."
+        )
+    return texto
+
+
+def _json_credencial(valor: str, nome: str) -> dict:
+    """Decifra e valida o JSON de uma credencial embutida."""
+    texto = _texto_credencial_criptografada(valor, nome)
+    if not texto:
+        return {}
+    try:
+        dados = json.loads(texto)
+    except json.JSONDecodeError as error:
+        raise ConfigError(
+            f"Credencial {nome} inválida no agebackup.json: {error}"
+        ) from error
+    if not isinstance(dados, dict):
+        raise ConfigError(f"Credencial {nome} não é um objeto JSON válido.")
+    return dados
+
+
+def _dados_adc() -> dict:
+    """Dados ADC do JSON cifrado ou, na falta dele, do arquivo do gcloud."""
+    config = load()
+    if config is not None and config.account.adc_json_criptografado:
+        try:
+            return _json_credencial(config.account.adc_json_criptografado, "ADC")
+        except ConfigError:
+            return {}
+
+    if not ADC_FILE.exists():
+        return {}
+    try:
+        dados = json.loads(ADC_FILE.read_text(encoding="utf-8"))
+    except OSError, json.JSONDecodeError:
+        return {}
+    return dados if isinstance(dados, dict) else {}
+
+
 def adc_present() -> bool:
     """Verifica se existem credenciais de Application Default Credentials."""
-    return ADC_FILE.exists()
+    if ADC_FILE.exists():
+        return True
+    try:
+        config = load()
+    except ConfigError:
+        return False
+    return bool(config and config.account.adc_json_criptografado)
 
 
 def adc_info() -> dict:
-    """Lê o arquivo ADC e devolve email, client_id e project_id, se houver."""
-    if not ADC_FILE.exists():
-        return {}
-
-    try:
-        data = json.loads(ADC_FILE.read_text(encoding="utf-8"))
-    except OSError, json.JSONDecodeError:
+    """Lê o ADC e devolve email, client_id e project_id, se houver."""
+    data = _dados_adc()
+    if not data:
         return {}
 
     # Atenção: o ADC do gcloud (authorized_user) NÃO guarda o e-mail da conta —
@@ -567,11 +627,13 @@ def build_credentials(
     """Monta as credenciais Google a partir da configuração.
 
     Suporta dois métodos:
-      * Service Account: lê o arquivo JSON informado em `service_account_key_path`.
-      * ADC: usa o que estiver no ambiente (gcloud / GOOGLE_APPLICATION_CREDENTIALS).
+      * Service Account: usa o JSON cifrado no `agebackup.json` ou, na falta
+        dele, o arquivo indicado em `service_account_key_path`.
+      * ADC: usa o JSON cifrado no `agebackup.json` ou o que estiver no
+        ambiente (gcloud / GOOGLE_APPLICATION_CREDENTIALS).
 
-    Levanta `ConfigError` quando a Service Account está configurada mas o
-    arquivo não existe.
+    Levanta `ConfigError` quando a credencial está configurada mas não pode ser
+    lida/decifrada.
     """
     import google.auth
 
@@ -580,19 +642,33 @@ def build_credentials(
         cfg = load()
         account = cfg.account if cfg is not None else None
 
-    if (
-        account is not None
-        and account.auth_method == AUTH_SERVICE_ACCOUNT
-        and account.service_account_key_path
-    ):
-        from google.oauth2 import service_account
+    if account is not None and account.auth_method == AUTH_SERVICE_ACCOUNT:
+        if account.service_account_key_path:
+            from google.oauth2 import service_account
 
-        chave = Path(account.service_account_key_path).expanduser()
-        if not chave.exists():
-            raise ConfigError(f"Chave de Service Account não encontrada: {chave}")
-        return service_account.Credentials.from_service_account_file(
-            str(chave), scopes=scope_list
-        )
+            chave = Path(account.service_account_key_path).expanduser()
+            if chave.exists():
+                return service_account.Credentials.from_service_account_file(
+                    str(chave), scopes=scope_list
+                )
+            if not account.service_account_json_criptografado:
+                raise ConfigError(f"Chave de Service Account não encontrada: {chave}")
+
+        if account.service_account_json_criptografado:
+            from google.oauth2 import service_account
+
+            dados = _json_credencial(
+                account.service_account_json_criptografado, "Service Account"
+            )
+            return service_account.Credentials.from_service_account_info(
+                dados, scopes=scope_list
+            )
+
+    if account is not None and account.adc_json_criptografado:
+        from google.oauth2.credentials import Credentials
+
+        dados = _json_credencial(account.adc_json_criptografado, "ADC")
+        return Credentials.from_authorized_user_info(dados, scopes=scope_list)
 
     credentials, _ = google.auth.default(scopes=scope_list)
     return credentials
