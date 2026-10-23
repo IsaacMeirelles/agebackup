@@ -16,6 +16,17 @@ from .log_tab import LogTab
 from .restore_tab import RestoreTab
 from .upload_tab import UploadTab
 
+# Nome interno de cada aba do notebook, na ordem em que são criadas.
+ABAS = {
+    0: "inicio",
+    1: "config",
+    2: "backup",
+    3: "compact",
+    4: "upload",
+    5: "restore",
+    6: "log",
+}
+
 
 class AgeBackupApp:
     def __init__(self, root):
@@ -33,7 +44,9 @@ class AgeBackupApp:
         topo = ttk.Frame(root)
         topo.pack(fill=tk.X, padx=5, pady=2)
         ttk.Label(topo, text="AgeBackup - Painel Único").pack(side=tk.LEFT)
-        ttk.Label(topo, text="F1: Ajuda").pack(side=tk.RIGHT)
+        ttk.Button(topo, text="Ajuda da aba (F1)", command=self.abrir_ajuda).pack(
+            side=tk.RIGHT
+        )
         ttk.Separator(root, orient=tk.HORIZONTAL).pack(fill=tk.X)
 
         self.status_var = tk.StringVar(value="Pronto")
@@ -136,7 +149,15 @@ class AgeBackupApp:
             pass
 
     def abrir_ajuda(self):
-        HelpDialog(self.root)
+        HelpDialog(self.root, self._chave_aba_atual())
+
+    def _chave_aba_atual(self) -> str:
+        """Identifica a aba visível para abrir o guia correspondente."""
+        try:
+            indice = self.notebook.index(self.notebook.select())
+        except tk.TclError:
+            return "inicio"
+        return ABAS.get(indice, "inicio")
 
 
 def main():

@@ -459,14 +459,20 @@ def enviar_com_conferencia(
     sha256_completo: bool = False,
     progresso=None,
     ao_conferir=None,
+    pasta: str | None = None,
 ) -> ResultadoEnvio:
     """Envia o arquivo e confere o resultado no servidor.
 
     `verificacao` liga a conferência de tamanho (barata). `sha256_completo`
-    acrescenta a prova byte a byte, baixando o arquivo de volta.
+    acrescenta a prova byte a byte, baixando o arquivo de volta. `pasta`
+    permite usar uma pasta remota já calculada (por exemplo, com o padrão
+    personalizado da configuração).
     """
     momento = datetime.now()
-    resultado = enviar(origem, credenciais, momento=momento, progresso=progresso)
+    pasta = pasta or pasta_remota(momento, credenciais.pasta)
+    resultado = enviar(
+        origem, credenciais, momento=momento, progresso=progresso, pasta=pasta
+    )
 
     if resultado.erro:
         return resultado
@@ -475,7 +481,7 @@ def enviar_com_conferencia(
         ao_conferir(resultado)
 
     if verificacao:
-        conferencia = conferir(origem, credenciais, momento=momento)
+        conferencia = conferir(origem, credenciais, momento=momento, pasta=pasta)
         resultado.tamanho_remoto = conferencia.tamanho_remoto
         if conferencia.erro:
             resultado.erro = conferencia.erro
@@ -492,7 +498,7 @@ def enviar_com_conferencia(
             ftp = None
             try:
                 ftp = conectar(credenciais)
-                garantir_pasta(ftp, pasta_remota(momento, credenciais.pasta))
+                garantir_pasta(ftp, pasta)
                 remoto_hash = sha256_remoto(ftp, origem.name, destino)
             except (ftplib.all_errors, OSError) as error:
                 resultado.erro = f"falha na verificacao sha256: {error}"
@@ -522,10 +528,8 @@ def enviar_com_conferencia(
         ftp = None
         try:
             ftp = conectar(credenciais)
-            garantir_pasta(ftp, pasta_remota(momento, credenciais.pasta))
-            resultado.removidos = apagar_antigos(
-                ftp, pasta_remota(momento, credenciais.pasta), manter
-            )
+            garantir_pasta(ftp, pasta)
+            resultado.removidos = apagar_antigos(ftp, pasta, manter)
         except ftplib.all_errors, OSError:
             pass
         finally:
@@ -541,9 +545,9 @@ def enviar_com_conferencia(
     return resultado
 
 
-def pasta_de_logs(momento: datetime, base: str = "") -> str:
-    """Pasta remota das conferências de log: ``/ano/mês/logs``."""
-    return f"{pasta_remota(momento, base)}/logs"
+def pasta_de_logs(momento: datetime, base: str = "", padrao: str = "") -> str:
+    """Pasta remota das conferências de log: ``<pasta remota>/logs``."""
+    return f"{pasta_remota(momento, base, padrao)}/logs"
 
 
 def arquivos_de_log(pasta_logs: Path) -> list[Path]:
@@ -573,15 +577,18 @@ def enviar_logs(
     *,
     momento: datetime | None = None,
     progresso=None,
+    manter: int = 0,
+    padrao: str = "",
 ) -> list[ResultadoEnvio]:
-    """Envia os logs (comprimidos e correntes) para ``/ano/mês/logs``.
+    """Envia os logs (comprimidos e correntes) para ``<pasta remota>/logs``.
 
     Cada log vai para junto do backup do mês, numa subpasta ``logs``, e é
     conferido pelo tamanho no servidor — é a conferência remota dos logs. Gasta
     bem menos banda que o ``.tar.gz``, porque os ``.log.gz`` são pequenos.
+    `padrao` aplica a pasta remota personalizada da configuração.
     """
     momento = momento or datetime.now()
-    pasta = pasta_de_logs(momento, credenciais.pasta)
+    pasta = pasta_de_logs(momento, credenciais.pasta, padrao)
     resultados: list[ResultadoEnvio] = []
 
     for arquivo in arquivos_de_log(pasta_logs):
@@ -600,6 +607,24 @@ def enviar_logs(
                     f"remoto {resultado.tamanho_remoto}B"
                 )
         resultados.append(resultado)
+
+    if manter > 0 and any(resultado.enviado for resultado in resultados):
+        ftp = None
+        try:
+            ftp = conectar(credenciais)
+            garantir_pasta(ftp, pasta)
+            apagar_antigos(ftp, pasta, manter)
+        except ftplib.all_errors, OSError:
+            pass
+        finally:
+            if ftp is not None:
+                try:
+                    ftp.quit()
+                except ftplib.all_errors, OSError:
+                    try:
+                        ftp.close()
+                    except OSError:
+                        pass
 
     return resultados
 

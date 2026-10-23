@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 
@@ -55,6 +56,24 @@ class UploadTab:
         self.log.insert(tk.END, msg + "\n")
         self.log.see(tk.END)
 
+    def _obter_credenciais(self, cfg):
+        """Usa as credenciais do config.json ou, na falta, o arquivo .ini."""
+        if getattr(cfg, "ftp", None) and cfg.ftp.tem_dados():
+            self._log("Usando credenciais salvas no config.json (criptografadas)")
+            return ftp.obter_credenciais(cfg)
+        cred = cfg.envio.caminho_credenciais()
+        if not cred.exists():
+            raise FileNotFoundError(
+                f"Arquivo de credenciais não encontrado: {caminho_completo(cred)}"
+            )
+        return ftp.ler_credenciais(cred)
+
+    @staticmethod
+    def _padrao_ftp(cfg) -> str:
+        return getattr(cfg.envio, "pasta_remota", "") or (
+            getattr(cfg.ftp, "pasta_remota", "") if getattr(cfg, "ftp", None) else ""
+        )
+
     def procurar(self):
         arq = filedialog.askopenfilename(
             filetypes=[("Tar.gz", "*.tar.gz"), ("Todos", "*.*")]
@@ -88,17 +107,7 @@ class UploadTab:
             messagebox.showerror("Erro", "Selecione um arquivo para enviar")
             return
         try:
-            if hasattr(cfg, "ftp") and cfg.ftp.tem_dados():
-                cred_obj = ftp.obter_credenciais(cfg)
-                self._log("Usando credenciais salvas no config.json (criptografadas)")
-            else:
-                cred = cfg.envio.caminho_credenciais()
-                if not cred.exists():
-                    messagebox.showerror(
-                        "Erro", f"Arquivo de credenciais não encontrado: {cred}"
-                    )
-                    return
-                cred_obj = ftp.ler_credenciais(cred)
+            cred_obj = self._obter_credenciais(cfg)
             self._log(
                 f"Credenciais: {cred_obj.usuario}@{cred_obj.host}:{cred_obj.porta}"
             )
@@ -106,11 +115,12 @@ class UploadTab:
             messagebox.showerror("Erro", str(e))
             return
 
-        padrao_ftp = getattr(cfg.envio, "pasta_remota", "") or (
-            getattr(cfg.ftp, "pasta_remota", "") if hasattr(cfg, "ftp") else ""
+        padrao_ftp = self._padrao_ftp(cfg)
+        pasta_destino = ftp.pasta_remota(
+            datetime.now(), cred_obj.pasta, padrao=padrao_ftp
         )
         self._log(f"Enviando {caminho_completo(arquivo)}...")
-        self._log(f"Pasta remota: {ftp.pasta_remota(padrao=padrao_ftp)}")
+        self._log(f"Pasta remota: {pasta_destino}")
 
         def _exec():
             return ftp.enviar_com_conferencia(
@@ -119,10 +129,17 @@ class UploadTab:
                 manter=cfg.envio.manter,
                 verificacao=True,
                 sha256_completo=False,
+                pasta=pasta_destino,
             )
 
         def _ok(r):
-            self._log(f"OK: {r}")
+            if r.erro:
+                self._log(f"ERRO: {r.erro}")
+                messagebox.showerror("Erro no envio", r.erro)
+                return
+            self._log(f"OK: enviado para {r.remoto} ({r.bytes_enviados} bytes)")
+            for nome in r.removidos:
+                self._log(f"  removido do servidor: {nome}")
             if self.status_callback:
                 self.status_callback("Upload concluído")
 
@@ -140,17 +157,41 @@ class UploadTab:
             return
         destino_backup = Path(cfg.backup.destination).expanduser()
         pasta_logs = cfg.logs.pasta(destino_backup)
-        cred = cfg.envio.caminho_credenciais()
+        try:
+            cred = self._obter_credenciais(cfg)
+        except (OSError, ValueError, ConfigError) as e:
+            messagebox.showerror("Erro", str(e))
+            return
+        padrao_ftp = self._padrao_ftp(cfg)
         runner = ThreadedRunner(self.frame.winfo_toplevel())
         self._log(f"Enviando logs de {caminho_completo(pasta_logs)}...")
+        self._log(
+            "Pasta remota: "
+            f"{ftp.pasta_de_logs(datetime.now(), cred.pasta, padrao_ftp)}"
+        )
 
         def _exec():
-            return ftp.enviar_logs(pasta_logs, cred, manter=cfg.envio.manter)
+            return ftp.enviar_logs(
+                pasta_logs, cred, manter=cfg.envio.manter, padrao=padrao_ftp
+            )
 
-        def _ok(r):
-            self._log(f"Logs enviados: {r}")
+        def _ok(resultados):
+            enviados = [r for r in resultados if r.enviado and not r.erro]
+            falhas = [r for r in resultados if r.erro]
+            self._log(f"Logs enviados: {len(enviados)} arquivo(s)")
+            for resultado in falhas:
+                self._log(f"  falha em {resultado.arquivo}: {resultado.erro}")
             if self.status_callback:
-                self.status_callback("Logs enviados")
+                self.status_callback(
+                    f"Logs enviados: {len(enviados)} | falhas: {len(falhas)}"
+                )
+            if falhas:
+                messagebox.showwarning(
+                    "Envio de logs",
+                    f"{len(falhas)} arquivo(s) falharam. Veja o log do envio.",
+                )
+            elif not resultados:
+                self._log("Nenhum log encontrado para enviar.")
 
         def _err(e):
             self._log(f"ERRO: {e}")

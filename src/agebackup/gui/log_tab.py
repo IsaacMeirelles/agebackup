@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gzip
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, scrolledtext, ttk
@@ -62,7 +63,13 @@ class LogTab:
             )
             return
         try:
-            dados = caminho.read_text(encoding="utf-8", errors="replace")
+            if caminho.suffix.lower() == ".gz":
+                with gzip.open(
+                    caminho, "rt", encoding="utf-8", errors="replace"
+                ) as arq:
+                    dados = arq.read()
+            else:
+                dados = caminho.read_text(encoding="utf-8", errors="replace")
         except (OSError, UnicodeError) as e:
             messagebox.showerror("Erro ao ler", str(e))
             return

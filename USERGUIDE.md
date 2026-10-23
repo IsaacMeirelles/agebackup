@@ -64,15 +64,31 @@ python3 -c "import tkinter; print('tkinter OK')"
 | **Upload Manual** | Envia um `.tar.gz` ou os logs sob demanda |
 | **Restaurar** | Restaura um arquivo individual de dentro do `.tar.gz` ou o arquivo completo |
 | **Log** | Abre os logs com filtro de texto e caminho completo |
-| **Ajuda** | Tutorial detalhado de cada aba, campo e botão (atalho **F1**) |
+| **Ajuda** | Guia detalhado da aba aberta: finalidade, cada campo e o que cada botão faz (atalho **F1**) |
 
 ### Atalhos
 
 | Atalho | Ação |
 | --- | --- |
-| `F1` | Abre a ajuda/tutorial |
+| `F1` | Abre o guia detalhado da aba em que você está |
 | `Ctrl+S` | Salva a configuração (na aba Configuração) |
 | `Ctrl+Q` | Fecha o aplicativo |
+
+### Ajuda dentro do programa
+
+A tecla **F1** (ou o botão **Ajuda da aba (F1)**, no topo) abre um guia da aba
+que está aberta. Cada guia explica:
+
+- **para que serve a aba** e o que ela não faz;
+- **cada campo**: o que preencher, o que acontece se ficar vazio e como o valor
+  é usado;
+- **cada botão**: o que acontece ao clicar, o que é validado e onde o resultado
+  aparece;
+- erros comuns, dicas e o passo a passo das tarefas.
+
+No topo da janela de ajuda há uma lista **Guia da aba** para trocar de guia sem
+fechar a janela. A ajuda também está disponível na aba **Início/Status**, pelo
+botão **Abrir Ajuda (F1)**.
 
 ### Configuração junto ao aplicativo
 
