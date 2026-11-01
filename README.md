@@ -68,6 +68,16 @@ cd agebackup
 uv sync
 ```
 
+## Binários prontos
+
+As versões publicadas ficam em
+[github.com/IsaacMeirelles/agebackup/releases](https://github.com/IsaacMeirelles/agebackup/releases).
+Cada release inclui os cinco executáveis para **Linux x86_64**, um pacote
+`.tar.gz` com a documentação e os arquivos `SHA256SUMS`/`.sha256`.
+
+Os binários são compilados no Ubuntu mais recente do GitHub Actions. Para outra
+arquitetura ou uma glibc mais antiga, recompile com `./packaging/build.sh`.
+
 ## Uso
 
 ```bash
