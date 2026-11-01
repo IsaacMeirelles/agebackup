@@ -30,7 +30,8 @@ gitcred
 .opencode/skills/*
 !.opencode/skills/google-drive-api/
 
-# Chaves e credenciais (Service Account, OAuth)
+# Chaves e credenciais (Service Account, OAuth, criptografia local)
+.agebackup-ftp.key*
 bkpenvio.json
 *service*account*.json
 *service-account*.json
