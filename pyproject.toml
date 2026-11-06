@@ -20,6 +20,7 @@ agebackup-setup = "agebackup.setup:main"
 agebackup-backup = "agebackup.cli:main"
 agebackup-compactar = "agebackup.compactacao:main"
 agebackup-enviar = "agebackup.ftp:main"
+agebackup-rotina = "agebackup.rotina:main"
 agebackup-gui = "agebackup.gui.app:main"
 
 [build-system]

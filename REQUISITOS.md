@@ -17,6 +17,8 @@ Siga na ordem.
 6. [Executar o backup](#6-executar-o-backup)
 7. [Os logs](#7-os-logs)
 8. [Agendar execução automática](#8-agendar-execução-automática)
+   - [Enviar para o FTP](#8b-enviar-para-o-ftp)
+   - [Rotina para um segundo destino](#8c-rotina-para-um-segundo-destino-regra-3-2-1)
 9. [Referência de comandos](#9-referência-de-comandos)
 10. [Problemas comuns](#10-problemas-comuns)
 11. [Limitações conhecidas](#11-limitações-conhecidas)
@@ -34,7 +36,9 @@ Ponto importante: **o AgeBackup nunca apaga nada do seu computador.** Ele apenas
 
 Além do backup, há o comando separado `agebackup-compactar`, que junta a pasta
 do backup inteira em um arquivo `.tar.gz` datado (ver
-[seção 6](#6-executar-o-backup)).
+[seção 6](#6-executar-o-backup)), e a `agebackup-rotina`, que grava snapshots
+completos em um segundo destino, com hardlinks para o que não mudou
+(ver [seção 8c](#8c-rotina-para-um-segundo-destino-regra-3-2-1)).
 
 ---
 
@@ -1150,6 +1154,140 @@ aplicativo). Ele só é usado quando a seção `ftp` está vazia. A conexão usa
 
 ---
 
+## 8c. Rotina para um segundo destino (regra 3-2-1)
+
+O backup principal mantém uma cópia do Drive no disco. A **rotina** é a camada
+seguinte: pega a pasta do backup e grava **snapshots completos** em um destino
+próprio — outro disco ou uma unidade de rede **já montada** (a rotina não monta
+nada). É o "2" da regra 3-2-1: uma segunda mídia, independente do Google.
+
+### Configuração
+
+A rotina não tem tela no assistente; ela é configurada no `agebackup.json`,
+na chave `rotina` (que pode ser acrescentada à mão):
+
+```json
+{
+  "rotina": {
+    "destinos": [
+      { "nome": "nas", "caminho": "/mnt/nas/bkps-rotina", "ativo": true },
+      { "nome": "hd-externo", "caminho": "/media/isaac/Backup", "ativo": false }
+    ],
+    "manter": { "full": 4, "incremental": 14, "diferencial": 8 }
+  }
+}
+```
+
+| Campo | Padrão | O que faz |
+| --- | --- | --- |
+| `destinos[].nome` | — | Apelido, usado em `--destino` e no nome do estado (obrigatório) |
+| `destinos[].caminho` | — | Pasta (ou unidade montada) onde os snapshots vão (obrigatório) |
+| `destinos[].ativo` | `true` | `false` desliga o destino sem apagar a entrada |
+| `manter.full` | `4` | Quantos snapshots `full` guardar (`0` = todos) |
+| `manter.incremental` | `14` | Quantos `incremental` guardar (`0` = todos) |
+| `manter.diferencial` | `8` | Quantos `diferencial` guardar (`0` = todos) |
+
+Entradas sem `nome` ou `caminho` são ignoradas. A retenção é limitada a 365.
+
+### Semântica dos três tipos
+
+Todos produzem uma **árvore completa**: qualquer arquivo pode ser copiado
+direto do snapshot, sem "aplicar" incrementais. A diferença é quanto é copiado:
+
+| Tipo | Âncora | O que copia |
+| --- | --- | --- |
+| `full` | nenhuma | Tudo, do zero. Ponto no tempo **independente** (sem hardlink a runs anteriores) |
+| `incremental` | último snapshot (de qualquer tipo) | Só o que mudou desde a âncora |
+| `diferencial` | último `full` | Só o que mudou desde a âncora |
+
+Arquivos com o mesmo tamanho e `mtime_ns` da âncora viram **hardlinks**
+destino → destino: só uma entrada de diretório, sem gastar espaço. Como o link
+é sempre dentro da própria âncora/destino, funciona mesmo quando a fonte está
+em outro sistema de arquivos. Se o destino não suportar hardlink (alguns
+SMB/exFAT), a rotina avisa e copia os inalterados — o snapshot fica correto,
+mas ocupa mais espaço.
+
+Casos de borda:
+
+- **Primeiro run** de um destino: qualquer tipo vira `full` (não há âncora).
+- **`--diferencial` sem `full` anterior**: degrada para `full`, com aviso.
+- **Arquivo removido na fonte**: não entra no snapshot novo, mas continua nos
+  snapshots anteriores (nada é apagado durante a cópia).
+- **Falha ou queda no meio**: o snapshot fica como `.<nome>.tmp`, não é
+  promovido e não vira âncora; o próximo run limpa o resto.
+- **Destino dentro da fonte** (ou igual a ela): recusado, para não criar
+  recursão.
+- **Item ilegível na fonte** (permissão, link simbólico de pasta): a execução
+  aborta antes de gravar qualquer snapshot — melhor falhar do que gerar um
+  snapshot incompleto em silêncio.
+- **`*.tmp`**: um parcial de download (quando o arquivo final existe ao lado)
+  fica de fora; um arquivo legítimo terminado em `.tmp`, vindo do Drive, entra
+  normalmente.
+- **Nomes de destino repetidos**: dois destinos não podem gerar o mesmo arquivo
+  de estado (mesmo `nome`, ou nomes que só diferem em pontuação); a rotina
+  recusa e pede para renomear um deles.
+- **Sem trava própria**: evite duas execuções simultâneas no mesmo destino
+  (o cron deve espaçar os horários).
+
+### Layout no destino
+
+Cada execução cria `AAAA-MM-DDTHHMMSS-<tipo>`:
+
+```
+/mnt/nas/bkps-rotina/
+├── 2026-11-01T220000-full/
+├── 2026-11-02T220000-inc/
+├── 2026-11-03T220000-inc/
+└── 2026-11-08T220000-full/
+```
+
+O estado de cada destino fica na **fonte**, em
+`.agebackup-rotina/estado-<nome>.json` (fora dos snapshots). Ele registra os
+runs, contadores e o último `full`; se o arquivo sumir ou ficar inválido, a
+lista é reconstruída a partir dos diretórios no disco.
+
+### Comandos
+
+```sh
+uv run agebackup-rotina --dry-run        # simula (não grava nada)
+uv run agebackup-rotina                  # incremental (padrão)
+uv run agebackup-rotina --full           # cópia completa
+uv run agebackup-rotina --diferencial    # desde o último full
+uv run agebackup-rotina --destino nas    # só um destino
+uv run agebackup-rotina --status         # snapshots existentes
+```
+
+O `--dry-run` mostra quantos arquivos seriam copiados e ligados (e quanto seria
+copiado) e quantos snapshots a retenção removeria, sem gravar nada.
+
+O código de saída é `0` quando tudo deu certo e `1` se um destino estava
+inacessível, sem permissão de escrita ou se a cópia de algum arquivo falhou
+(os outros destinos continuam). Flags de tipo são mutuamente exclusivas.
+
+### Restaurar
+
+Não há formato proprietário: copie o arquivo de dentro do snapshot desejado.
+
+```sh
+cp "/mnt/nas/bkps-rotina/2026-11-06T223000-inc/Documentos/contrato.docx" ~/
+```
+
+### Agendar
+
+Depois do backup diário, um incremental; um `full` por semana (domingo):
+
+```cron
+PATH=/home/isaac/.local/bin:/usr/local/bin:/usr/bin:/bin
+30 22 * * * cd /home/isaac/projetos/agebackup && uv run agebackup-rotina >> logs/rotina.log 2>&1
+30 22 * * 0 cd /home/isaac/projetos/agebackup && uv run agebackup-rotina --full >> logs/rotina.log 2>&1
+```
+
+> Não agende o `full` e o incremental no mesmo horário: o segundo encontraria o
+> primeiro ainda em andamento. A rotina não tem trava própria — evite execuções
+> simultâneas no mesmo destino.
+
+---
+
 ## 9. Referência de comandos
 
 ### Configuração
@@ -1198,6 +1336,17 @@ aplicativo). Ele só é usado quando a seção `ftp` está vazia. A conexão usa
 | `uv run agebackup-enviar --verificar-sha256` | Confere byte a byte (baixa de volta) |
 | `uv run agebackup-enviar --conferir P` | Só confere um arquivo já enviado |
 | `uv run agebackup-enviar --dry-run` | Simula, não envia |
+
+### Rotina (segundo destino)
+
+| Comando | O quê |
+| --- | --- |
+| `uv run agebackup-rotina` | Snapshot incremental (padrão) em todos os destinos ativos |
+| `uv run agebackup-rotina --full` | Cópia completa e independente |
+| `uv run agebackup-rotina --diferencial` | Só o que mudou desde o último full |
+| `uv run agebackup-rotina --destino NOME` | Executa apenas um destino |
+| `uv run agebackup-rotina --status` | Lista os snapshots de cada destino |
+| `uv run agebackup-rotina --dry-run` | Simula, não grava |
 
 ---
 
@@ -1293,12 +1442,13 @@ Seja claro sobre o que **não** funciona:
 | **Não apaga arquivos locais** | Só registra a remoção no log |
 | **Não baixa versões anteriores** | Só a versão atual de cada arquivo |
 | **Não agenda sozinho** | Use cron |
+| **Destino da rotina sem hardlink** | Em sistemas de arquivos que não suportam hardlink (alguns SMB/exFAT), a rotina copia os arquivos inalterados em vez de linkar. Os snapshots ficam corretos, mas cada um ocupa o espaço de uma cópia completa |
 | **Não apaga a cópia antiga em renomeação com conteúdo alterado** | Se um arquivo muda de nome **e** de conteúdo, o AgeBackup baixa a nova versão no lugar novo e a cópia antiga fica no disco (não apaga nada localmente); o `--check` a lista como fora do manifesto. Renomeação ou mudança de pasta sem mudança de conteúdo é resolvida movendo a cópia local, sem rebaixar |
 | **Testes usam servidor emulado** | A suíte automatizada roda contra um servidor HTTP local; o caminho real já foi verificado manualmente com uma conta somente-leitura |
 
 ### Sobre a última limitação
 
-Isto é importante: o código está coberto por **379 testes** que rodam contra um
+Isto é importante: o código está coberto por **496 testes** que rodam contra um
 servidor HTTP local emulado, reproduzindo o comportamento da API. O caminho
 real já foi exercitado manualmente (leitura somente, com uma Service Account),
 mas não é coberto pela suíte automatizada.
@@ -1351,10 +1501,11 @@ servidor (pré-requisitos, permissões, Service Account, FTP e `systemd`), veja
 │   ├── manifest.py    # manifesto e log de remoções
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação por execução e retenção
+│   ├── rotina.py      # comando agebackup-rotina (snapshots no 2º destino)
 │   ├── setup.py       # tela de configuração
 │   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executável autônomo (PyInstaller)
-├── tests/             # 429 testes
+├── tests/             # 496 testes
 ├── USERGUIDE.md        # guia do usuário
 └── .opencode/skills/  # documentação de referência da API
 ```

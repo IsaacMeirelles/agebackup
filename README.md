@@ -50,6 +50,12 @@ automaticamente e os logs giram a cada execução com retenção configurável.
   7 mais recentes. Em seguida envia os **logs** para conferência remota. As
   credenciais FTP ficam cifradas no `agebackup.json` e podem ser importadas de
   um `.ini` antigo pela GUI.
+- **Rotina local (regra 3-2-1)** — `agebackup-rotina` grava snapshots completos
+  do backup em um segundo destino: outro disco ou uma unidade de rede já
+  montada. São três tipos: `full` (cópia independente), `incremental` (desde o
+  último snapshot) e `diferencial` (desde o último full); arquivos inalterados
+  viram hardlinks, então só o que mudou ocupa espaço. A retenção é por tipo e
+  cada snapshot é um ponto no tempo — nada é apagado durante a cópia.
 - **Dois modos de autenticação** — Application Default Credentials (conta
   pessoal/gestor) ou Service Account (compartilhando a pasta por e-mail).
 
@@ -86,6 +92,7 @@ uv run agebackup-setup --test   # testa credenciais e acesso à pasta
 uv run agebackup-backup --dry-run   # simula, sem gravar
 uv run agebackup-backup             # executa o backup
 uv run agebackup-compactar          # arquiva o backup em um .tar.gz
+uv run agebackup-rotina             # copia o backup para o segundo destino
 ```
 
 Parâmetros úteis de `agebackup-backup`:
@@ -115,6 +122,22 @@ Parâmetros úteis de `agebackup-compactar`:
 O nome gerado é `<pasta>_AAAAMMDD-HHMM.tar.gz` (ou
 `<pasta>_<prefixo>_AAAAMMDD-HHMM.tar.gz` quando há prefixo), e a gravação é
 atômica (escreve um `.tmp` e só então renomeia).
+
+Parâmetros úteis de `agebackup-rotina`:
+
+| Flag | Efeito |
+| --- | --- |
+| `--incremental` | Só o que mudou desde o último snapshot (padrão) |
+| `--full` | Cópia completa e independente (padrão no primeiro run) |
+| `--diferencial` | Só o que mudou desde o último `full` |
+| `--destino NOME` | Executa apenas o destino com esse apelido |
+| `--status` | Lista os snapshots existentes em cada destino |
+| `--dry-run` | Simula, sem gravar nada |
+| `-h`, `--help` | Mostra a ajuda |
+
+Os destinos e a retenção ficam na chave `rotina` do `agebackup.json`
+(`destinos: [{nome, caminho, ativo}]` e `manter: {full, incremental,
+diferencial}`); detalhes no [REQUISITOS.md](REQUISITOS.md#8c-rotina-para-um-segundo-destino-regra-3-2-1).
 
 A configuração fica em `agebackup.json`, **ao lado do executável** (por
 exemplo, `/opt/agebackup/agebackup.json`), e o assistente (`agebackup-setup`)
@@ -162,7 +185,7 @@ destino/
 ## Desenvolvimento
 
 ```bash
-uv run python -m pytest   # 441 testes (nenhum chama a API real)
+uv run python -m pytest   # 496 testes (nenhum chama a API real)
 uv run black .            # formatação
 uv run ruff check .       # lint
 ./packaging/build.sh      # executáveis autônomos (ver packaging/README.md)
@@ -173,12 +196,15 @@ de rede nos testes.
 
 ## Roadmap
 
-> **Fase B concluída.** A tabela abaixo lista as fases restantes — os itens
-> marcados como pendentes **não existem** no código atual.
+> **Fases B e E1 concluídas.** A tabela abaixo lista o que está pronto e o que
+> falta — os itens marcados como pendentes **não existem** no código atual.
 
 | Fase | O que traz |
 | --- | --- |
 | ~~**B**~~ | **Concluída:** detecção de renomeações/movimentações via manifesto (sem cópia órfã no nome antigo) + `--check` — verificação offline de integridade |
+| ~~**E1**~~ | **Concluída:** `agebackup-rotina` — snapshots full/incremental/diferencial com hardlinks para destinos locais ou unidades de rede montadas, retenção por tipo e estado na fonte |
+| **E2** | Rotina para destinos FTP/FTPS (mesma semântica da E1, sem hardlink remoto) |
+| **E3** | `agebackup-rotina --check`: confere um snapshot contra a fonte/manifesto |
 | **A** | CLI com `argparse` (flag inválida vira erro, em vez de cair no fluxo do backup; `--version`) + CI no GitHub Actions (ruff, black, pytest) |
 | **C** | Downloads paralelos com `--workers` (padrão 4) e progresso/ETA por arquivo |
 | **D** | Suíte opt-in contra a API real (`pytest -m real`, com credenciais) |

@@ -169,11 +169,11 @@ class Stats:
         if self.falhas:
             partes.append(f"{self.falhas} falhas")
         if self.bytes_novos:
-            partes.append(f"{_formatar_bytes(self.bytes_novos)} novos")
+            partes.append(f"{formatar_bytes(self.bytes_novos)} novos")
         return ", ".join(partes)
 
 
-def _formatar_bytes(valor: int) -> str:
+def formatar_bytes(valor: int) -> str:
     for unidade in ("B", "KB", "MB", "GB"):
         if valor < 1024:
             return (
@@ -981,9 +981,7 @@ def executar_backup(
 
             if dry_run:
                 stats.baixados += 1
-                print(
-                    f"  baixaria     {entrada.name} ({_formatar_bytes(entrada.size)})"
-                )
+                print(f"  baixaria     {entrada.name} ({formatar_bytes(entrada.size)})")
                 continue
 
             print(f"  baixando     {entrada.name}...", end="", flush=True)

@@ -1142,6 +1142,116 @@ mudaram — o resto continua vindo do full.
 
 ---
 
+## Passo 12 — Rotina para um segundo destino (regra 3-2-1)
+
+O backup (Passo 4) mantém uma cópia do Drive no computador. A **rotina** é a
+camada seguinte: pega a pasta do backup e grava **snapshots completos** em outro
+disco ou em uma unidade de rede já montada. É o "2" da regra 3-2-1 — uma segunda
+mídia, independente do Google.
+
+### Antes de começar
+
+- O destino precisa estar **montado e acessível** (ex.: `/mnt/nas/bkps-rotina`).
+  A rotina não monta nada sozinha.
+- Os snapshots usam **hardlinks**: arquivos inalterados não ocupam espaço de
+  novo. Em sistemas de arquivos que não suportam hardlink (alguns SMB/exFAT), a
+  rotina avisa e copia os inalterados — os snapshots ficam corretos, mas gastam
+  mais espaço e tempo.
+
+### Configurar
+
+A rotina é configurada no `agebackup.json` (ainda não há tela para ela). Abra o
+arquivo e acrescente a chave `rotina`:
+
+```json
+{
+  "rotina": {
+    "destinos": [
+      { "nome": "nas", "caminho": "/mnt/nas/bkps-rotina", "ativo": true },
+      { "nome": "hd-externo", "caminho": "/media/isaac/Backup", "ativo": false }
+    ],
+    "manter": { "full": 4, "incremental": 14, "diferencial": 8 }
+  }
+}
+```
+
+| Campo | O que faz |
+| --- | --- |
+| `nome` | Apelido, usado em `--destino` e no nome do estado |
+| `caminho` | Pasta (ou unidade montada) onde os snapshots vão |
+| `ativo` | `false` desliga o destino sem apagar a entrada |
+| `manter.full` | Quantos snapshots `full` guardar (0 = todos) |
+| `manter.incremental` | Quantos `incremental` guardar (0 = todos) |
+| `manter.diferencial` | Quantos `diferencial` guardar (0 = todos) |
+
+### Três tipos de snapshot
+
+Todos produzem uma **árvore completa** (dá para pegar um arquivo direto do
+snapshot, sem "aplicar" incrementais). A diferença é quanto é copiado:
+
+| Tipo | Quando usar | O que copia |
+| --- | --- | --- |
+| `--full` | Semanal, ou ao trocar de mídia | Tudo, do zero. Independente dos outros |
+| `--incremental` | Diário (padrão) | Só o que mudou desde o **último snapshot** |
+| `--diferencial` | Entre fulls | Só o que mudou desde o **último full** |
+
+O que não muda vira hardlink para o snapshot anterior — ocupa só uma entrada de
+diretório. Excluir um arquivo na origem **não** o apaga dos snapshots antigos:
+cada snapshot é um ponto no tempo. A retenção é o único ponto que remove
+snapshots antigos, e apagar um não corrompe os outros.
+
+### Rodar
+
+```sh
+uv run agebackup-rotina --dry-run        # simula (não grava nada)
+uv run agebackup-rotina                  # incremental (padrão)
+uv run agebackup-rotina --full           # cópia completa
+uv run agebackup-rotina --diferencial    # desde o último full
+uv run agebackup-rotina --destino nas    # só um destino
+uv run agebackup-rotina --status         # snapshots existentes
+```
+
+Cada execução cria uma pasta `AAAA-MM-DDTHHMMSS-<tipo>` no destino
+(`...-full`, `...-inc`, `...-dif`). O snapshot só aparece com esse nome quando
+termina com sucesso: durante a cópia ele fica como `.<nome>.tmp` — se a máquina
+cair no meio, o próximo run limpa o resto.
+
+O estado de cada destino fica na **fonte**, em
+`.agebackup-rotina/estado-<nome>.json` (esse diretório não entra nos snapshots).
+
+### Agendar
+
+Depois do backup diário, uma rotina incremental; um full por semana (domingo):
+
+```cron
+PATH=/home/isaac/.local/bin:/usr/local/bin:/usr/bin:/bin
+30 22 * * * cd /home/isaac/projetos/agebackup && uv run agebackup-rotina >> logs/rotina.log 2>&1
+30 22 * * 0 cd /home/isaac/projetos/agebackup && uv run agebackup-rotina --full >> logs/rotina.log 2>&1
+```
+
+> Não agende o full e o incremental no mesmo horário: o segundo encontraria o
+> primeiro ainda em andamento. A rotina não tem trava própria — se duas
+> execuções se sobrepuserem no mesmo destino, uma delas falha. O `--dry-run`
+> mostra o que seria feito, inclusive o que a retenção removeria.
+
+### Restaurar
+
+Basta copiar o arquivo de dentro do snapshot desejado — não há formato
+proprietário:
+
+```sh
+cp "/mnt/nas/bkps-rotina/2026-11-06T223000-inc/Documentos/contrato.docx" ~/
+```
+
+### O que a rotina não faz
+
+- Não apaga nada da fonte.
+- Não sincroniza de volta.
+- Não envia para FTP (isso é o `agebackup-enviar`, Passo 10).
+- Não monta a unidade de rede.
+
+---
+
 ## Agendar execução automática
 
 O script `atualizar.sh` faz os três passos em sequência: baixa o backup,
@@ -1352,6 +1462,11 @@ uv run agebackup-backup --check   # conferir integridade (offline)
 uv run agebackup-compactar           # arquivar o backup em .tar.gz
 uv run agebackup-compactar --listar  # listar os arquivos gerados
 uv run agebackup-compactar --dry-run # simular, sem gravar
+
+uv run agebackup-rotina              # copiar para o segundo destino (incremental)
+uv run agebackup-rotina --full       # cópia completa
+uv run agebackup-rotina --status     # snapshots existentes
+uv run agebackup-rotina --dry-run    # simular, sem gravar
 ```
 
 > Para rodar **sem Python** (`uv`), gere os executáveis autônomos com
@@ -1379,6 +1494,7 @@ uv run agebackup-compactar --dry-run # simular, sem gravar
 │   ├── manifest.py    # manifesto e log de remoções
 │   ├── reconstruir.py # reconstrói .pptx/.docx/.xlsx de nativos grandes
 │   ├── rotacao.py     # rotação por execução e retenção dos logs
+│   ├── rotina.py      # comando agebackup-rotina (snapshots no 2º destino)
 │   ├── setup.py       # tela de configuração
 │   └── verificacao.py # verificação offline de integridade (--check)
 ├── packaging/         # executáveis autônomos (PyInstaller)

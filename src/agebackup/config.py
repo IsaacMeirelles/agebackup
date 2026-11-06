@@ -78,6 +78,14 @@ FULL_MAXIMO = 365
 MANTER_ENVIO_PADRAO = 7
 MANTER_ENVIO_MAXIMO = 365
 
+# Retenção dos snapshots da rotina (destinos secundários). 0 significa "guardar
+# todos". Os padrões casam com o cron sugerido na documentação: full semanal,
+# incremental diário e diferencial semanal, mantendo cerca de um mês.
+ROTINA_FULL_PADRAO = 4
+ROTINA_INCREMENTAL_PADRAO = 14
+ROTINA_DIFERENCIAL_PADRAO = 8
+ROTINA_MANTER_MAXIMO = 365
+
 
 @dataclass
 class AccountConfig:
@@ -227,6 +235,37 @@ class FtpConfig:
 
 
 @dataclass
+class DestinoRotinaConfig:
+    """Um destino secundário da rotina (cópia do backup local).
+
+    `caminho` é uma pasta normal ou uma unidade de rede já montada (ex.:
+    ``/mnt/nas/bkps-rotina``). `ativo` permite desligar o destino sem apagar a
+    entrada da configuração.
+    """
+
+    nome: str = ""
+    caminho: str = ""
+    ativo: bool = True
+
+
+@dataclass
+class ManterRotinaConfig:
+    """Quantos snapshots de cada tipo a rotina mantém. 0 = guardar todos."""
+
+    full: int = ROTINA_FULL_PADRAO
+    incremental: int = ROTINA_INCREMENTAL_PADRAO
+    diferencial: int = ROTINA_DIFERENCIAL_PADRAO
+
+
+@dataclass
+class RotinaConfig:
+    """Rotina de cópia do backup para destinos secundários."""
+
+    destinos: list[DestinoRotinaConfig] = field(default_factory=list)
+    manter: ManterRotinaConfig = field(default_factory=ManterRotinaConfig)
+
+
+@dataclass
 class Config:
     """Configuração completa do AgeBackup."""
 
@@ -237,6 +276,7 @@ class Config:
     compactacao: CompactacaoConfig = field(default_factory=CompactacaoConfig)
     envio: EnvioConfig = field(default_factory=EnvioConfig)
     ftp: FtpConfig = field(default_factory=FtpConfig)
+    rotina: RotinaConfig = field(default_factory=RotinaConfig)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -270,6 +310,7 @@ def load() -> Config | None:
         ),
         envio=EnvioConfig(**_conhecidos(data.get("envio"), EnvioConfig)),
         ftp=FtpConfig(**_conhecidos(data.get("ftp"), FtpConfig)),
+        rotina=RotinaConfig(**_conhecidos(data.get("rotina"), RotinaConfig)),
     )
     return cfg
 
@@ -295,7 +336,55 @@ def _conhecidos(dados: object, modelo: type) -> dict:
         return _ajustar_envio(filtrado)
     if modelo is FtpConfig:
         return filtrado
+    if modelo is RotinaConfig:
+        return _ajustar_rotina(filtrado)
     return filtrado
+
+
+def _inteiro_rotina(valor: object, padrao: int) -> int:
+    """Normaliza a retenção de um tipo de snapshot (0 = guardar todos)."""
+    try:
+        return max(0, min(ROTINA_MANTER_MAXIMO, int(valor)))
+    except TypeError, ValueError:
+        return padrao
+
+
+def _ajustar_rotina(dados: dict) -> dict:
+    """Normaliza os destinos e a retenção da rotina."""
+    destinos: list[DestinoRotinaConfig] = []
+
+    for item in dados.get("destinos") or []:
+        if not isinstance(item, dict):
+            continue
+        nome = item.get("nome")
+        caminho = item.get("caminho")
+        if not isinstance(nome, str) or not isinstance(caminho, str):
+            continue
+        if not nome.strip() or not caminho.strip():
+            continue
+        destinos.append(
+            DestinoRotinaConfig(
+                nome=nome.strip(),
+                caminho=caminho.strip(),
+                ativo=bool(item.get("ativo", True)),
+            )
+        )
+
+    bruto = dados.get("manter")
+    manter = bruto if isinstance(bruto, dict) else {}
+    retorno = {
+        "destinos": destinos,
+        "manter": ManterRotinaConfig(
+            full=_inteiro_rotina(manter.get("full"), ROTINA_FULL_PADRAO),
+            incremental=_inteiro_rotina(
+                manter.get("incremental"), ROTINA_INCREMENTAL_PADRAO
+            ),
+            diferencial=_inteiro_rotina(
+                manter.get("diferencial"), ROTINA_DIFERENCIAL_PADRAO
+            ),
+        ),
+    }
+    return retorno
 
 
 def _ajustar_envio(dados: dict) -> dict:

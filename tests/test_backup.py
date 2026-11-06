@@ -23,9 +23,9 @@ from agebackup.backup import (
     Stats,
     _destino_existente,
     _eh_pasta,
-    _formatar_bytes,
     _mover_arquivo,
     executar_backup,
+    formatar_bytes,
     listar_arquivos,
 )
 from agebackup.config import AccountConfig, BackupConfig, Config
@@ -645,9 +645,9 @@ def test_stats_resumo_movidos_no_dry_run():
 
 
 def test_formatar_bytes():
-    assert _formatar_bytes(512) == "512B"
-    assert _formatar_bytes(2048) == "2.0KB"
-    assert _formatar_bytes(5 * 1024 * 1024) == "5.0MB"
+    assert formatar_bytes(512) == "512B"
+    assert formatar_bytes(2048) == "2.0KB"
+    assert formatar_bytes(5 * 1024 * 1024) == "5.0MB"
 
 
 def test_eh_pasta():
